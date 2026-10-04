@@ -38,6 +38,10 @@ const LOG_Y = 0.42; const LOG_Z = 0.2; // held-log rest position in body-local s
 const EASE_CARRY = 5.5; // the log arrives and leaves slower than the body pose
 // Cook: lean toward the pot with the right hand circling over it at ~1.2 Hz.
 const STIR_HZ = 1.2; const STIR_LEAN = 0.17; const STIR_RADIUS = 0.17;
+// Tend (M2): stand-watch. A slow 0.6 Hz weight shift with a small forward reach — a keeper
+// watches the fire, they do not swing at it. Deliberately near-neutral.
+const TEND_HZ = 0.6; const TEND_BOB = 0.012; const TEND_SWING = 0.05;
+const TEND_LEAN = 0.02; const TEND_REACH = 0.24;
 // Eat: a savoring head bob for the length of the meal rest.
 const SAVOR_HZ = 0.8; const SAVOR_BOB = 0.016;
 // Embers: a faint tremble, ≤ ±0.006 u at ~7 Hz, plus a small hunch. Never loud.
@@ -306,6 +310,21 @@ export function createVillagers(): VillagersLayer {
             swing: 0,
             raise: CARRY_RAISE * 0.78, // hands up at the rim
             stir: 1,
+          };
+          break;
+        }
+        if (villager.task === 'tend') {
+          // M2: a keeper on stand-watch is not chopping. Near-neutral, a slow 0.6 Hz weight
+          // shift and a small forward reach — it reads as watching a fire rather than swinging
+          // at nothing, which is what the chop branch used to do for every non-cook task. The
+          // carry override further down still wins while `carrying`, so fetching is unchanged.
+          const sway = Math.sin(t * TAU * TEND_HZ);
+          out = {
+            bob: sway * TEND_BOB,
+            lean: TEND_LEAN + sway * 0.015,
+            swing: sway * TEND_SWING,
+            raise: TEND_REACH + Math.sin(t * TAU * TEND_HZ * 0.5) * 0.05,
+            stir: 0,
           };
           break;
         }

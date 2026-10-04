@@ -120,10 +120,13 @@ window.addEventListener('pagehide', () => {
   audio.dispose();
 });
 
-// Restored from the back/forward cache means those layers are gone for good. Slice 1 has no save
-// system, so there is nothing to restore — take a clean boot instead.
+// Restored from the back/forward cache means those layers are gone for good and cannot be
+// revived. Since B3 there *is* a save, so persist before reloading — otherwise a bfcache restore
+// would throw away up to one autosave interval (~3 s) of progress.
 window.addEventListener('pageshow', () => {
-  if (stopped) window.location.reload();
+  if (!stopped) return;
+  if (!wiped) saveGame(state);
+  window.location.reload();
 });
 
 window.__cozy = { getState: () => state, projectVillager: (id) => render.projectVillager(id) };

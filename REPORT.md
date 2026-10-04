@@ -41,7 +41,9 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · stir 1.19Hz · shiver 6.96Hz · hearts pooled 4 · calls 168 ✅ | 4.5/5 |
 | B7 | UI: fuel pill, task grid, build cards, reset | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · orchestrator flow: card→build→cook ✅ · calls 135 ✅ | 4.5/5 |
 | B8 | Audio: crackle + new SFX | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 51/51 ✅ · dormant pre-gesture ✅ · console clean ✅ | 4.5/5 |
-| B9 | Batch-2 independent review + 20 proposals | in progress | `opencode/mimo-v2.6-flash-free` | — | — | — |
+| B9 | Batch-2 independent review + 20 proposals | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 1 Critical · 4 Important · 7 Minor (all real) | 5/5 |
+| B9-1 | Fix batch: sim + persist (C-level findings 1; I1–I4; M3, M4, M6, M7) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 + 3 micro-rounds (M3 geometry) | 62/62 ✅ · live: queue flush + log settle ✅ | 4.5/5 |
+| B9-2 | Fix batch: UI + render (C1; M1, M2, M5, M6-UI) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 62/62 ✅ · all three click paths ✅ · innerHTML 118→0 ✅ | 4.5/5 |
 | B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
@@ -73,6 +75,34 @@ Honourable mentions not in the 10: camera focus on selected villager (T7 #9), re
 (T7 #16), batch "assign to all idle" (T7 #19), `hash01`/`mulberry32` dedupe (M9), code-split for the
 one remaining build warning (chunk > 500 kB, three.js).
 
+## Improvement candidates — round 2 (curated 10, easy → hard)
+
+Curated from B9's 20 proposals (the review-era bugs it found are fixed, not listed). User playtests,
+adds their own, picks ~5–6 for batch 3.
+
+1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
+   legible across the clearing. (B9 #5)
+2. [easy] **Well-fed badge** — tint the card's task label with `--leaf` while `fedMs > 0`; explains the
+   speed-up without a tooltip. (B9 #6)
+3. [easy] **Pot recipe in the status line** — `Meals: N · 3 berries + 1 wood each`. (B9 #8)
+4. [medium] **Garden countdown** — `Growing… 18s` from the existing `gardenMs`; a watched purchase.
+   (B9 #9)
+5. [medium] **Warmth disc breathes with fuel** — a soft translucent disc radius ∝ fuel; makes the
+   "can eat here" warmth readable without numbers. (B9 #11)
+6. [medium] **Cursor + hover cue** — throttled raycast on pointermove sets `cursor: pointer` over
+   villagers/structures; closes the discoverability gap. (B9 #12)
+7. [medium] **Meals past six read at the pot** — scale the top bowl or thicken the steam. (B9 #10)
+8. [medium] **Wind gusts** — slow noise envelope on the existing wind gain; the forest breathes.
+   (B9 #13)
+9. [hard] **Instance/merge structure parts** — ~145 → ~80 draw calls before batch 3 spends them.
+   (B9 #17)
+10. [hard] **Rotating village line** — replace the panel hint with a throttled state-driven line
+    ("The fire is dimming", "Clover is well-fed"). (B9 #20)
+
+Honourable mentions: obstacle-aware walking around trunks (B9 #18), save schema v2 + migrations (#19),
+cook-streak blips (#14), audible garden (#15), splitting `villagers.ts` (530) / `ui/index.ts` (470),
+a 3D highlight for the selected structure.
+
 ## Log
 
 ### 2026-10-04 — T1 complete (commit d551aaf)
@@ -89,7 +119,37 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B7 complete + keeper-ring field fix (commit pending)
+### 2026-10-05 — B9 complete + fix batches B9-1 / B9-2 (commit pending)
+- Review (`mimo-v2.6-flash-free`, 5/5): 1 Critical, 4 Important, 7 Minor — all adjudicated as real;
+  contract scorecard clean; perf 120–145 calls; save round-trip verified. Report `docs/tasks/B9-report.md`.
+- Fix batch 1 (`muse-spark#xhigh`, sim + persist): pendingEvents queue (built SFX now plays),
+  settle-carried-log on reassignment, universal flame-avoiding arc (measured min fire distance > 1.0
+  for tend-cook legs), cook affordability per deduction (large-dt ledger safe), structure arrival
+  slots, full-belly eat guard, stricter save shape, STRUCTURE_COST export.
+- M3 geometry took three evidence-driven micro-rounds: r=0.75 floor 0.419 < 0.45 → r=0.85 still
+  variance-limited → **r=0.9 + 0.02 arrival tolerance** (movement clamps, so villagers land exactly on
+  their slot): measured min pair **0.5031**, all 62 tests green. Ruling recorded: shared-structure
+  arrivals needed the tight tolerance, not just a wider ring; cost if wrong: none observed.
+- Fix batch 2 (`space-bunny#xhigh`, UI + render): C1 world-click popover fixed (all three click paths
+  verified by orchestrator: villager → grid, ghost → card "Cooking pot", ground → cleared),
+  structure-card per-frame churn 118→0 writes/2 s, keeper watch pose (no more air-chop), stale comments,
+  `STRUCTURE_COST` imported from sim, pageshow save-before-reload (wiped-guard preserved).
+- Live orchestrator evidence: pending queue flush ['built'] → 0 next frame; carrying reassignment
+  refunds wood (+1) and clears the pose; calls 127; console clean (synthetic-pointer artifact only).
+- Notes: render-layer/models report sizes growing (`villagers.ts` 530, `ui/index.ts` 470,
+  `sim/index.ts` 342) — improvement candidates; M1 signature guard has no mechanical protection
+  (adding a card field without updating the signature silently stops repaints) — documented.
+
+### 2026-10-04 — B8 complete (commit 3a3c5bc)
+- Model: `opencode/muse-spark-1.3-contributor-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
+- Deliverable: fire crackle grains (rate/gain by fuel state: 3/1.5/0.5/0.1 per s, jittered, shared
+  noise buffer), SFX for `fuel-add` (thud), `meal-cooked` (two-note blip), `eat` (munch), `built`
+  (knock + chime), priority pick per batch with per-type 400 ms cooldown, feeder halves the chirp
+  interval. All nodes released on `ended`.
+- Verified: 51/51 tests; console clean; audio dormant pre-gesture (`state 'none'`, `started false`).
+  Audible quality is the human playtest check — not forced in automation.
+
+### 2026-10-04 — B7 complete + keeper-ring field fix (commit c8e78fa)
 - Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
 - Deliverable: fuel pill (value + mini bar + `data-state`), 2×3 task grid with Cook/Stop gating,
   structure cards (cost/shortfall/Build; built status incl. `Meals: N`), two-step reset, `Tending…`/

@@ -1,4 +1,5 @@
 import type { GameState, StructureKind, TaskId, Villager } from '../sim';
+import { STRUCTURE_COST } from '../sim';
 
 export interface UIActions {
   assignTask(villagerId: string, task: TaskId | null): void;
@@ -57,18 +58,6 @@ const STRUCTURE_NAMES: Record<StructureKind, string> = {
   garden: 'Garden',
   lantern: 'Lantern',
   feeder: 'Bird feeder',
-};
-
-/* DESIGN §3.2 costs. The sim owns the binding table in its internal `tasks.ts`, and the layer
-   contract lets other modules import types from `../sim` and nothing else, so the UI keeps its
-   own copy. If the sim's numbers ever move, this table has to move with them. */
-const STRUCTURE_COSTS: Record<StructureKind, { wood: number; berries: number }> = {
-  woodpile: { wood: 0, berries: 0 },
-  pot: { wood: 20, berries: 0 },
-  bench: { wood: 15, berries: 0 },
-  garden: { wood: 25, berries: 0 },
-  lantern: { wood: 10, berries: 0 },
-  feeder: { wood: 10, berries: 5 },
 };
 
 interface CardParts {
@@ -142,6 +131,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const structureStatus = must<HTMLElement>(structureCard, '.structure-status');
   const buildBtn = must<HTMLButtonElement>(structureCard, '[data-build]');
   const fuelPill = must<HTMLElement>(root, '#hud [data-res="fuel"]');
+  const fuelValueNode = must<HTMLElement>(fuelPill, '.pill-value');
   const fuelFill = must<HTMLElement>(fuelPill, '.fuel-fill');
   const resetBtn = must<HTMLButtonElement>(root, '.reset-btn');
   const cards = new Map<string, CardParts>();
@@ -154,6 +144,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   // Yield pulses are re-armed at most this often per pill, so a busy forest whispers
   // instead of throbbing (M11a). Counters are never throttled.
   const lastPulseAt = new Map<string, number>();
+  // Pills are static markup: resolve them once instead of per frame (M1).
+  const woodPill = must<HTMLElement>(root, '#hud [data-res="wood"]');
+  const woodValue = must<HTMLElement>(woodPill, '.pill-value');
+  const berriesPill = must<HTMLElement>(root, '#hud [data-res="berries"]');
+  const berriesValue = must<HTMLElement>(berriesPill, '.pill-value');
+  /** Last structure-card signature rendered; '' means "nothing rendered yet" (M1). */
+  let lastStructureSignature = '';
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Silent reset of the card + popover. Never notifies, so it is safe to reuse. */
@@ -186,14 +183,21 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     setDisabled(cookBtn, !state.structures.some((s) => s.kind === 'pot' && s.built));
   }
 
-  /** B7: the structure card — name in the popover title, then cost + Build or a status line. */
+  /** B7: the structure card — name in the popover title, then cost + Build or a status line.
+   *  Signature-guarded (M1): the cost line is an innerHTML rewrite with inline SVGs, so it must
+   *  not run on a frame where nothing it displays has changed. */
   function syncStructureCard(state: GameState): void {
     const structure = state.structures.find((s) => s.id === selectedStructureId);
     // The popover shows one thing at a time: the task grid for a villager, the card for a structure.
     taskGrid.hidden = structure !== undefined;
     structureCard.hidden = structure === undefined;
     if (!structure) return;
-    const cost = STRUCTURE_COSTS[structure.kind];
+
+    const signature = `${structure.kind}|${structure.built}|${state.resources.wood}|${state.resources.berries}|${state.pot.meals}`;
+    if (signature === lastStructureSignature) return;
+    lastStructureSignature = signature;
+
+    const cost = STRUCTURE_COST[structure.kind];
     const affordable =
       state.resources.wood >= cost.wood && state.resources.berries >= cost.berries;
 
@@ -251,14 +255,21 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
 
   /** B7: a structure selected from the 3D world. Silent — main.ts already synced the world. */
   function applyStructureSelection(structureId: string | null, state: GameState): void {
+    // C1: `null` means "no structure under this click", not "clear everything". main.ts calls
+    // `ui.select(villagerId)` first, so clearing the villager selection here would undo a
+    // world click on a villager in the same gesture. Drop the structure half only.
+    if (structureId === null) {
+      selectedStructureId = null;
+      return;
+    }
     clearSelectionVisuals();
-    if (structureId === null) return;
     const structure = state.structures.find((s) => s.id === structureId);
     if (!structure) return;
     selectedStructureId = structure.id;
     popoverTitle.textContent = STRUCTURE_NAMES[structure.kind];
     popover.hidden = false;
     syncActiveButtons(state);
+    lastStructureSignature = ''; // force the card to render for the newly selected structure
     syncStructureCard(state);
   }
 
@@ -385,11 +396,12 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         applyStructureSelection(requested, state);
       }
       for (const res of ['wood', 'berries'] as const) {
-        const pill = must<HTMLElement>(root, `#hud [data-res="${res}"]`);
+        // M1: pill + value nodes are hoisted out of the frame; only the numbers change here.
+        const pill = res === 'wood' ? woodPill : berriesPill;
+        const text = res === 'wood' ? woodValue : berriesValue;
         const value = String(state.resources[res]);
         if (pill.dataset.value !== value) {
           pill.dataset.value = value;
-          const text = must<HTMLElement>(pill, '.pill-value');
           text.textContent = value;
         }
         if (state.events.some((ev) => (res === 'wood' ? ev.type === 'chop' : ev.type === 'gather'))) {
@@ -407,10 +419,10 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       }
       // Fuel: number + bar + a data-state class. The bar is a fixed-width track so a shrinking
       // fill cannot reflow the pill.
-      const fuelValue = String(Math.round(state.fire.fuel));
-      if (fuelPill.dataset.value !== fuelValue) {
-        fuelPill.dataset.value = fuelValue;
-        must<HTMLElement>(fuelPill, '.pill-value').textContent = fuelValue;
+      const fuel = String(Math.round(state.fire.fuel));
+      if (fuelPill.dataset.value !== fuel) {
+        fuelPill.dataset.value = fuel;
+        fuelValueNode.textContent = fuel;
         fuelFill.style.width = `${(state.fire.max > 0 ? (state.fire.fuel / state.fire.max) * 100 : 0).toFixed(1)}%`;
       }
       const fire = fireState(state.fire.fuel, state.fire.max);

@@ -4,8 +4,8 @@ import { PALETTE } from './palette';
 
 export interface Environment {
   group: THREE.Group;
-  /** B4: optional live fire state; when omitted, fuel is read via the `__cozy` hook
-      (render/index.ts still calls `update(timeSec)` and is owned by another task). */
+  /** B4: live fire state. render/index.ts always passes `state.fire`; when omitted (unit tests,
+      or a caller that has no state yet) fuel falls back to a steady default. */
   update(timeSec: number, fire?: Fire): void;
   dispose(): void;
 }
@@ -28,11 +28,11 @@ function scatterRadius(hash: number, inner: number, outer: number): number {
   return Math.sqrt(inner * inner + hash * (outer * outer - inner * inner));
 }
 
-/** Live fire state: explicit arg wins, else the `__cozy` hook, else a steady default
-    (hook absent in unit tests / before boot). Never throws, never NaN. */
+/** Live fire state: the explicit arg, else a steady default for callers with no state yet.
+    Never throws, never NaN. (The `__cozy` hook fallback is gone since render/index.ts always
+    passes `state.fire` — M5.) */
 function resolveFire(fire: Fire | undefined): { ratio: number } {
-  const hookFire = typeof window === 'undefined' ? undefined : window.__cozy?.getState().fire;
-  const f = fire ?? hookFire ?? { fuel: 70, max: 100 };
+  const f = fire ?? { fuel: 70, max: 100 };
   if (!(f.max > 0)) return { ratio: 0.7 };
   const ratio = f.fuel / f.max;
   return { ratio: Math.min(1, Math.max(0, ratio)) };
