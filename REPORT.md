@@ -33,6 +33,20 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 
 ## Log
 
+### 2026-10-04 — T1 complete (commit d551aaf)
+- Model: `opencode/space-bunny-free#xhigh` · attempts: 1 + 1 fix round · score 4.5/5.
+- Validation evidence: `tsc --noEmit`/`build`/`test` green; live browser (isolated tab, port 5188):
+  console clean, 8 cards, assign → label + `state.villagers[].task` update, Escape/outside-click close,
+  popover no longer covers the edited card; screenshots `docs/validation/T01-*.png`.
+- Fix round 1: (a) brief pinned `PCFSoftShadowMap`, removed at runtime in three 0.186 → `PCFShadowMap`
+  (spec error — the model had flagged it); (b) popover overlapped the edited card → re-docked as a
+  panel footer.
+- Rulings: accepted `@types/three` (three 0.186 ships no types; strict TS needs it) — cost if wrong:
+  one extra devDependency. T1 authored `src/sim/*` stubs per its brief while DESIGN §5 assigns sim to
+  T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
+- Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
+  user's other projects).
+
 ### 2026-10-04 — setup
 - Ruling: no git worktree — brand-new solo repo at `cozy-forest-village/`; single writer at a
   time (sequential dispatches). Cost if wrong: trivial to relocate/open a worktree later.
