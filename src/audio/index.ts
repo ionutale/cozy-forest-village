@@ -35,6 +35,7 @@ export function initAudio(): AudioHandle {
   const rnd = mulberry32(20261006);
   let chirpInMs = 5000 + rnd() * 4000; // first chirp 5–9 s after start
   let chirpElapsedMs = 0;
+  const lastSfx: Record<string, number> = { chop: -10, gather: -10, 'rest-done': -10 };
 
   /** One enveloped oscillator voice with optional pitch glide and random-safe pan. */
   function voice(at: number, from: number, to: number, dur: number, peak: number, pan: number, type: OscillatorType): void {
@@ -56,6 +57,15 @@ export function initAudio(): AudioHandle {
       tail = p;
     }
     tail.connect(master);
+    osc.onended = () => {
+      try {
+        osc.disconnect();
+        g.disconnect();
+        if (tail !== g) tail.disconnect();
+      } catch {
+        // Already torn down — nothing to release.
+      }
+    };
     osc.start(at);
     osc.stop(at + dur + 0.05);
   }
@@ -112,12 +122,23 @@ export function initAudio(): AudioHandle {
 
   function knock(): void {
     if (!ctx) return;
-    voice(ctx.currentTime + 0.01, 170, 85, 0.16, 0.14, 0, 'triangle'); // muffled wood knock
+    const v = 1 + (rnd() * 2 - 1) * 0.08; // ±8 % so stacked knocks never phase-align
+    voice(ctx.currentTime + 0.01, 170 * v, 85 * v, 0.16, 0.14 * v, 0, 'triangle');
   }
 
   function pluck(): void {
     if (!ctx) return;
-    voice(ctx.currentTime + 0.01, 520, 780, 0.22, 0.08, rnd() * 0.6 - 0.3, 'sine'); // soft upward pluck
+    const v = 1 + (rnd() * 2 - 1) * 0.08;
+    voice(ctx.currentTime + 0.01, 520 * v, 780 * v, 0.22, 0.08, rnd() * 0.6 - 0.3, 'sine');
+  }
+
+  /** At most one SFX per event batch; each type has its own ~400 ms cooldown. */
+  function playSfx(kind: 'chop' | 'gather' | 'rest-done', now: number): void {
+    if (now - (lastSfx[kind] ?? -10) < 0.4) return;
+    lastSfx[kind] = now;
+    if (kind === 'chop') knock();
+    else if (kind === 'gather') pluck();
+    else chime();
   }
 
   function chime(): void {
@@ -162,11 +183,13 @@ export function initAudio(): AudioHandle {
         chirpInMs = 4000 + rnd() * 8000;
         chirp();
       }
+      let pick: 'chop' | 'gather' | 'rest-done' | null = null;
       for (const ev of state.events) {
-        if (ev.type === 'chop') knock();
-        else if (ev.type === 'gather') pluck();
-        else if (ev.type === 'rest-done') chime();
+        if (ev.type === 'rest-done') { pick = 'rest-done'; break; } // rarest first
+        else if (ev.type === 'gather') pick = 'gather';
+        else if (ev.type === 'chop' && pick === null) pick = 'chop';
       }
+      if (pick !== null) playSfx(pick, ctx.currentTime);
     },
     dispose(): void {
       disposed = true;
@@ -175,6 +198,7 @@ export function initAudio(): AudioHandle {
       if (ctx) ctx.close().catch(() => undefined);
       ctx = null;
       master = null;
+      delete window.__cozyAudio;
     },
   };
 }

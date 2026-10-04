@@ -3,6 +3,7 @@ export const PALETTE = {
   sky: '#cfe0ea',
   fog: '#d8e4cf',
   grass: '#8fb768',
+  disc: '#ece0c3',
   trunk: '#7a5941',
   foliageA: '#6f9e4f',
   foliageB: '#7fae5b',

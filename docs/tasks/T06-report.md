@@ -33,3 +33,11 @@ console-clean load, birds/butterflies/motes visibly moving across ~2 s samples, 
 2. `environment.ts` is exactly 220 lines (spec: ≤ ~220) — no functional compromise.
 3. Butterfly wing amplitude is ±0.45 rad ("tiny" per spec) at 7 Hz; bird flap ±0.35 rad at 3 Hz — both gentle, nothing aggro.
 4. `voice()` stereo pan falls back to mono when `createStereoPanner` is missing — defensive, untestable here.
+
+## Fix round (review findings I4, I5, M8, M12 leftover)
+
+- **F3.1 (I4):** `update()` now plays at most one SFX per `state.events` batch (priority rest-done > gather > chop) via `playSfx()`, with a per-type ~400 ms cooldown on the audio clock (`lastSfx`, seeded init −10). `knock()` gets ±8 % seeded variation on frequency and gain, `pluck()` ±8 % on pitch — stacked hits no longer phase-align. Worst case is now ~2.5 soft knocks/s, one voice each.
+- **F3.2 (I5):** `voice()` sets `osc.onended` to disconnect `osc`, the gain node, and the panner (if present) in try/catch — finished voices release their nodes instead of accumulating a disconnected-but-referenced chain.
+- **F3.3 (M8):** `PALETTE.disc = '#ece0c3'` added (after `grass`, with the ground tones); `environment.ts` clearing disc uses `PALETTE.disc`. No hardcoded hex left (palette key itself excepted).
+- **F3.4 (M12):** `dispose()` also does `delete window.__cozyAudio`.
+- Verify: `tsc --noEmit` 0, `pnpm build` ok, `pnpm test` 3 files / 24 tests pass. No browser available here — console-clean/gesture-dormant check left to orchestrator; audible output cannot be proven with synthetic events (no user activation), noted per instructions.

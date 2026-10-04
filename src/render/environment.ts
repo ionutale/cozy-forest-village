@@ -185,7 +185,7 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
     flame.position.set(x, 0.6, z);
     const disc = new THREE.Mesh(
       track(new THREE.CircleGeometry(4.2, 40)),
-      track(new THREE.MeshLambertMaterial({ color: '#ece0c3' })),
+      track(new THREE.MeshLambertMaterial({ color: PALETTE.disc })),
     );
     disc.position.set(x, 0.01, z);
     disc.rotation.x = -Math.PI / 2;
