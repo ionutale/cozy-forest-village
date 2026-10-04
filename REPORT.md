@@ -8,7 +8,7 @@ validation → evaluation. Recovery map: commits named here exist in git.
 | Model ID | Variants | Intended use |
 |---|---|---|
 | `opencode/space-bunny-free` | low…max | probe + complex/creative tasks |
-| `opencode/fledge-alpha-free` | low…max | complex tasks (backup probe) |
+| `opencode/fledge-alpha-free` | low…max | ⚠️ geo-blocked — "not available in your country" (excluded) |
 | `opencode/longcat-2.5-preview-free` | — | complex tasks |
 | `opencode/ling-3.1-flash-free` | — | small mechanical tasks |
 | `opencode/mimo-v2.6-flash-free` | — | small mechanical tasks |
@@ -24,7 +24,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | # | Task | Status | Model | Attempts | Validation | Score |
 |---|---|---|---|---|---|---|
 | T1 | Scaffold + cozy UI shell + base scene | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build/test ✅ · browser ✅ · console clean ✅ · cozy ✅ | 4.5/5 |
-| T2 | Pure sim core (FSM, tasks, RNG) + vitest | queued | — | — | — | — |
+| T2 | Pure sim core (FSM, tasks, RNG) + vitest | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 + 1 fix | tsc/build ✅ · 17/17 tests ✅ · code review ✅ | 4.5/5 |
 | T3 | Forest environment (InstancedMesh, light, fog) | queued | — | — | — | — |
 | T4 | Villagers (primitives + hats + procedural anim) | queued | — | — | — | — |
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | queued | — | — | — | — |
@@ -46,6 +46,19 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-04 — T2 complete (commit pending)
+- Model attempts in order: `opencode/fledge-alpha-free#max` → instant provider rejection
+  ("This model is not available in your country"), no work done, free; then
+  `opencode/longcat-2.5-preview-free` → DONE. Attempts: 1 (+1 fix round). Score 4.5/5.
+- Evidence: `tsc`/`build`/`test` green; 17 tests across 3 files with real oracles (nearest-node
+  recomputation, arrival-boundary math, event lifecycle, assignment retargeting, dtMs=0, determinism);
+  code read against DESIGN §3.1 — constants and FSM transitions match.
+- Fix round 1: accumulators were hidden in a module-level `WeakMap` (public shape preserved, but
+  state was no longer the single source of truth → breaks serialization/replay). Ruling: `progressMs`
+  is a public `Villager` field (DESIGN §3/§3.1 updated). Cost if wrong: one extra state field.
+- Notes: villager names/colors/nodes shape verified by tests; node tie-break is lexicographic id
+  ascending (`tree-10` < `tree-2`) — accepted as spec-faithful ("id ascending").
 
 ### 2026-10-04 — setup
 - Ruling: no git worktree — brand-new solo repo at `cozy-forest-village/`; single writer at a

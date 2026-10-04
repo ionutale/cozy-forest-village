@@ -50,6 +50,7 @@ export interface Villager {
   state: VillagerState;
   pos: Vec2;
   facing: number;            // radians, updated while walking (render reads it)
+  progressMs: number;        // ms in the current activity (work yield / rest timer); 0 when idle or walking
   targetNodeId: string | null;
 }
 export interface SimEvent {
@@ -99,6 +100,8 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
   kind (squared distance; ties broken by node id ascending).
 - `assignTask(state, id, null)` → idle, target cleared. Reassigning mid-walk retargets immediately.
 - Events: `tick()` clears `state.events`, then appends this tick's events; consumers read after `tick`.
+- Progress: `progressMs` accumulates `dtMs` while `working`/`resting`; reset on assignment, on
+  arrival, and on completion. All timers live in the state — no hidden per-object storage.
 - Determinism: same seed + same call sequence → identical state. No `Math.random`, no clocks inside `sim/`.
 - `facing` updates while walking: `atan2(dx, dz)` in three.js convention (x right, z toward viewer).
 
@@ -110,6 +113,8 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 ### Testability hook (all layers)
 
 `main.ts` exposes `globalThis.__cozy = { getState: () => state }` for automated validation.
+The render layer additionally exposes `globalThis.__cozyRender = { info: () => ({ calls, triangles,
+geometries, textures }) }` from `initRender` for performance checks.
 
 ## 4. Palette & tokens (binding values)
 
@@ -131,6 +136,8 @@ export const PALETTE = {
   sky: '#cfe0ea', fog: '#d8e4cf', grass: '#8fb768',
   trunk: '#7a5941', foliageA: '#6f9e4f', foliageB: '#7fae5b',
   sun: '#ffe3b3', ambientSky: '#cfe0ea', ambientGround: '#7fa653',
+  rock: '#a49b8a', tuftA: '#86b25f', tuftB: '#79a555',
+  flowerWhite: '#f4efe2', flowerPink: '#d9a3b8',
   fire: '#e08a3c',
 } as const;
 ```
@@ -142,9 +149,9 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 | Path | Owner |
 |---|---|
 | `src/sim/**`, `src/sim/*.test.ts` | T2 |
-| `src/render/environment.ts` | T3 |
+| `src/render/environment.ts`, `src/render/palette.ts` | T3 |
 | `src/render/villagers.ts` | T4 |
-| `src/render/index.ts`, `src/main.ts` | T1 creates; T5 modifies |
+| `src/render/index.ts`, `src/main.ts` | T1 creates; T3 edits render/index.ts; T5 modifies |
 | `src/ui/**`, `src/styles/**` | T1 creates; T5 refines |
 | `src/render/ambient.ts`, `src/audio/**` | T6 |
 | README.md, index.html, configs | T1 creates; later tasks only with a ruling |
