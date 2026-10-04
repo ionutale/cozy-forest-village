@@ -36,7 +36,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B1 | Sim: fire + Tend fire + warmth | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 32/32 ✅ · 50-seed sweep 0 violations ✅ · keeper loop live ✅ | 4.5/5 |
 | B2 | Sim: build + cook/meals/eat + garden | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 41/41 ✅ · live: costs/meals/eat/garden exact ✅ | 4.5/5 |
 | B3 | Persist: localStorage save/load/autosave | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 49/49 ✅ · live: build → reload → restored ✅ · corrupt → fresh ✅ | 4.5/5 |
-| B4 | Render: fire visuals + warm light | queued | — | — | — | — |
+| B4 | Render: fire visuals + warm light | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · fuel 70/20/0 screenshots ✅ · calls 86 ✅ | 4.5/5 |
 | B5 | Render: structures + ghosts + picking | queued | — | — | — | — |
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | queued | — | — | — | — |
 | B7 | UI: fuel pill, task grid, build cards, reset | queued | — | — | — | — |
@@ -88,7 +88,18 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B3 complete (commit pending)
+### 2026-10-04 — B4 complete (commit pending)
+- Model: `opencode/muse-spark-1.3-contributor-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
+- Evidence: flame scale `0.25 + 0.75·ratio` × gentle two-sine flicker, colour lerp ember→fire, one
+  warm point light `0.25 + 1.15·ratio` (distance 14, no shadows), 16-dot ember bed fading in as fuel
+  drops. Screenshots at fuel 70/20/0 (`docs/validation/B4-fuel*.png`) — the clearing cools visibly,
+  difference reads at a glance, not loud. Calls 86 (<200), console clean.
+- Boundary note: `environment.update` accepts an optional `Fire` and otherwise falls back to the
+  `__cozy` hook (the model could not touch `render/index.ts`). B5 now passes `state.fire` explicitly —
+  the hook path becomes a defensive fallback only.
+- `PALETTE.ember = '#a5502f'` added (muted dark orange).
+
+### 2026-10-04 — B3 complete (commit b1bb532)
 - Model: `opencode/longcat-2.5-preview-free` · 1 attempt, 0 fix rounds · 4.5/5.
 - Evidence: 49/49 tests (8 new: round-trip, version mismatch, corrupt JSON, missing arrays, autosave
   semantics with fake timers). Orchestrator live: built a pot → autosave wrote (pot built, wood 30) →

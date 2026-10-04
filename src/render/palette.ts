@@ -16,6 +16,7 @@ export const PALETTE = {
   flowerWhite: '#f4efe2',
   flowerPink: '#d9a3b8',
   fire: '#e08a3c',
+  ember: '#a5502f',
   accent: '#e08a3c',
   bird: '#8d7d6b',
   mote: '#f6e7c6',

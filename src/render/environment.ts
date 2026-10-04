@@ -1,10 +1,12 @@
 import * as THREE from 'three';
-import type { ResourceNode } from '../sim';
+import type { Fire, ResourceNode } from '../sim';
 import { PALETTE } from './palette';
 
 export interface Environment {
   group: THREE.Group;
-  update(timeSec: number): void;
+  /** B4: optional live fire state; when omitted, fuel is read via the `__cozy` hook
+      (render/index.ts still calls `update(timeSec)` and is owned by another task). */
+  update(timeSec: number, fire?: Fire): void;
   dispose(): void;
 }
 
@@ -13,6 +15,8 @@ const ROCK_COUNT = 24;
 const TUFT_COUNT = 420;
 const FLOWER_COUNT = 60;
 const TRUNK_H = 1.6;
+const EMBER_COUNT = 16;
+const FLAME_BASE_Y = 0.075; // cone base stays in the ring while the tip breathes
 
 /** Deterministic 0..1 hash from an index + salt. Fully seeded, no RNG calls. */
 function hash01(index: number, salt: number): number {
@@ -22,6 +26,16 @@ function hash01(index: number, salt: number): number {
 
 function scatterRadius(hash: number, inner: number, outer: number): number {
   return Math.sqrt(inner * inner + hash * (outer * outer - inner * inner));
+}
+
+/** Live fire state: explicit arg wins, else the `__cozy` hook, else a steady default
+    (hook absent in unit tests / before boot). Never throws, never NaN. */
+function resolveFire(fire: Fire | undefined): { ratio: number } {
+  const hookFire = typeof window === 'undefined' ? undefined : window.__cozy?.getState().fire;
+  const f = fire ?? hookFire ?? { fuel: 70, max: 100 };
+  if (!(f.max > 0)) return { ratio: 0.7 };
+  const ratio = f.fuel / f.max;
+  return { ratio: Math.min(1, Math.max(0, ratio)) };
 }
 
 export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
@@ -169,8 +183,19 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
   group.add(flowers);
 
   // --- Campfire area: ring + flame (T1 look) + warm clearing disc ---
+  // B4: the flame, its light and the ember bed all breathe with `state.fire.fuel`.
+  let flame: THREE.Mesh | null = null;
+  let flameMat: THREE.MeshBasicMaterial | null = null;
+  let fireLight: THREE.PointLight | null = null;
+  let emberMat: THREE.PointsMaterial | null = null;
+  let fireX = 0;
+  let fireZ = 0;
+  const fireCol = new THREE.Color(PALETTE.fire);
+  const emberCol = new THREE.Color(PALETTE.ember);
   if (campfire) {
     const { x, z } = campfire.pos;
+    fireX = x;
+    fireZ = z;
     const ring = new THREE.Mesh(
       track(new THREE.TorusGeometry(0.92, 0.16, 6, 14)),
       track(new THREE.MeshLambertMaterial({ color: PALETTE.rock })),
@@ -178,10 +203,8 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
     ring.position.set(x, 0.14, z);
     ring.rotation.x = -Math.PI / 2;
     ring.castShadow = true;
-    const flame = new THREE.Mesh(
-      track(new THREE.ConeGeometry(0.4, 1.05, 8)),
-      track(new THREE.MeshBasicMaterial({ color: PALETTE.fire })),
-    );
+    flameMat = track(new THREE.MeshBasicMaterial({ color: PALETTE.fire }));
+    flame = new THREE.Mesh(track(new THREE.ConeGeometry(0.4, 1.05, 8)), flameMat);
     flame.position.set(x, 0.6, z);
     const disc = new THREE.Mesh(
       track(new THREE.CircleGeometry(4.2, 40)),
@@ -190,12 +213,31 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
     disc.position.set(x, 0.01, z);
     disc.rotation.x = -Math.PI / 2;
     disc.receiveShadow = true;
-    group.add(disc, ring, flame);
+    // One warm point light, no shadows (perf); intensity follows fuel in update().
+    fireLight = new THREE.PointLight(PALETTE.fire, 1.4, 14, 2);
+    fireLight.position.set(x, 1.1, z);
+    // Ember bed: 16 dim dots over the ring; opacity follows 1 − fuel in update().
+    const emberGeo = track(new THREE.BufferGeometry());
+    const emberPos = new Float32Array(EMBER_COUNT * 3);
+    for (let i = 0; i < EMBER_COUNT; i += 1) {
+      const r = Math.sqrt(hash01(i, 25)) * 0.8;
+      const a = hash01(i, 26) * TAU;
+      emberPos[i * 3] = x + Math.cos(a) * r;
+      emberPos[i * 3 + 1] = 0.1 + hash01(i, 27) * 0.45;
+      emberPos[i * 3 + 2] = z + Math.sin(a) * r;
+    }
+    emberGeo.setAttribute('position', new THREE.BufferAttribute(emberPos, 3));
+    emberMat = track(new THREE.PointsMaterial({
+      color: PALETTE.ember, size: 0.09, transparent: true, opacity: 0.8, depthWrite: false,
+    }));
+    const embers = new THREE.Points(emberGeo, emberMat);
+    embers.frustumCulled = false;
+    group.add(disc, ring, flame, fireLight, embers);
   }
 
   return {
     group,
-    update(timeSec: number): void {
+    update(timeSec: number, fire?: Fire): void {
       // T6 breeze: crowns tilt ≤ 0.03 rad around their base; trunks stay put. 40 crowns: trivial.
       for (let i = 0; i < crownBase.length; i += 1) {
         const c = crownBase[i]!; // guarded by the loop bound (same idiom as sim/index.ts)
@@ -208,6 +250,22 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
         crowns.setMatrixAt(i, dummy.matrix);
       }
       if (crownBase.length > 0) crowns.instanceMatrix.needsUpdate = true;
+      // B4 heartbeat: flame scale/tint, warm light and ember glow all follow fuel.
+      // Slow two-sine flicker (±6 %), always eased — never strobing.
+      if (flame && flameMat && fireLight && emberMat) {
+        const { ratio } = resolveFire(fire);
+        const flick = 0.6 * Math.sin(timeSec * TAU * 0.9) + 0.4 * Math.sin(timeSec * TAU * 1.7 + 1.3);
+        const s = (0.25 + 0.75 * ratio) * (1 + 0.06 * flick);
+        flame.scale.setScalar(s);
+        flame.position.set(
+          fireX + 0.03 * Math.sin(timeSec * TAU * 1.3 + 0.5),
+          FLAME_BASE_Y + 0.525 * s,
+          fireZ + 0.03 * Math.cos(timeSec * TAU * 1.1 + 2.0),
+        );
+        flameMat.color.lerpColors(emberCol, fireCol, ratio);
+        fireLight.intensity = (0.25 + 1.15 * ratio) * (1 + 0.06 * flick);
+        emberMat.opacity = (0.15 + 0.75 * (1 - ratio)) * (1 + 0.1 * flick);
+      }
     },
     dispose(): void {
       group.traverse((obj) => {
