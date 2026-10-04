@@ -1,8 +1,11 @@
-// Public simulation types. Binding shapes from DESIGN.md §3 — other layers import
-// these from `src/sim/index.ts` and nothing else from the sim.
+// Public simulation types. Binding shapes from DESIGN.md §3 (contract) and §3.2
+// (batch-2 surface) — other layers import these from `src/sim/index.ts` and
+// nothing else from the sim.
 
-export type TaskId = 'chop' | 'berries' | 'rest';
+export type TaskId = 'chop' | 'berries' | 'rest' | 'tend' | 'cook';
 export type VillagerState = 'idle' | 'walking' | 'working' | 'resting';
+
+export type StructureKind = 'woodpile' | 'pot' | 'garden' | 'bench' | 'lantern' | 'feeder';
 
 export interface Vec2 {
   x: number;
@@ -15,6 +18,22 @@ export interface ResourceNode {
   pos: Vec2;
 }
 
+export interface Structure {
+  id: string;
+  kind: StructureKind;
+  pos: Vec2;
+  built: boolean;
+}
+
+export interface Fire {
+  fuel: number;
+  max: number;
+}
+
+export interface Pot {
+  meals: number;
+}
+
 export interface Villager {
   id: string;
   name: string;
@@ -23,13 +42,16 @@ export interface Villager {
   state: VillagerState;
   pos: Vec2;
   facing: number; // radians, updated while walking (render reads it)
-  targetNodeId: string | null;
+  targetNodeId: string | null; // resolves against nodes OR structures
   progressMs: number; // ms accumulated in the current activity (work yield / rest timer); 0 while idle or walking
+  fedMs: number; // >0 → well-fed: work period 1190 ms; decays with time in every state
+  carrying: boolean; // keeper carrying a log (render shows the carry pose)
 }
 
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done';
-  villagerId: string;
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built';
+  villagerId?: string;
+  structureId?: string;
 }
 
 export interface GameState {
@@ -38,5 +60,9 @@ export interface GameState {
   resources: { wood: number; berries: number };
   villagers: Villager[];
   nodes: ResourceNode[];
+  structures: Structure[];
+  fire: Fire;
+  pot: Pot;
+  gardenMs: number; // accumulator for the built garden's +1 berry / 30000 ms
   events: SimEvent[]; // events from the latest tick; cleared at the start of each tick
 }

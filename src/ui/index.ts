@@ -18,6 +18,9 @@ const TASK_LABELS: Record<TaskId, string> = {
   chop: 'Chop wood',
   berries: 'Gather berries',
   rest: 'Rest',
+  // B1: labels for the expanded TaskId union; the task grid itself is a UI task.
+  tend: 'Tend fire',
+  cook: 'Cook',
 };
 
 /** Minimum gap between two yield pulses on the same HUD pill (M11a). */

@@ -1,15 +1,10 @@
-// Pure simulation core (DESIGN.md §3, §3.1). No DOM, no three.js, no clocks —
-// deterministic functions over GameState only. This module is the only entry
-// other layers may import; internal modules are implementation detail.
+// Pure simulation core (DESIGN.md §3, §3.1, §3.2). No DOM, no three.js, no
+// clocks — deterministic functions over GameState only. This module is the
+// only entry other layers may import; internal modules are implementation detail.
 
 export type {
-  GameState,
-  ResourceNode,
-  SimEvent,
-  TaskId,
-  Vec2,
-  Villager,
-  VillagerState,
+  Fire, GameState, Pot, ResourceNode, SimEvent, Structure, StructureKind,
+  TaskId, Vec2, Villager, VillagerState,
 } from './types';
 
 import type { GameState, TaskId, Vec2, Villager } from './types';
@@ -17,15 +12,16 @@ import { mulberry32 } from './rng';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
 import {
-  ARRIVAL_DISTANCE,
-  MOVE_SPEED,
-  REST_DURATION_MS,
-  TASK_KIND,
-  WORK_PERIOD_MS,
-  nearestNode,
-  restSpot,
-  workSpot,
+  ARRIVAL_DISTANCE, FIRE_DECAY_PER_MS, LOG_FUEL, MOVE_SPEED, TEND_FETCH_FUEL,
+  TASK_KIND, TASK_STRUCTURE, WORK_PERIOD_MS, nearestNode, nearestStructure,
+  restDuration, restSpot, workSpot,
 } from './tasks';
+
+const CAMPFIRE_ID = 'campfire';
+const WOODPILE_ID = 'woodpile';
+/** Woodpile sits on the village ring at 90°, r = 2.6 (DESIGN.md §3.2). */
+const WOODPILE_ANGLE = Math.PI / 2;
+const WOODPILE_RADIUS = 2.6;
 
 export function createInitialState(seed = 1): GameState {
   const rnd = mulberry32(seed);
@@ -35,6 +31,20 @@ export function createInitialState(seed = 1): GameState {
     resources: { wood: 0, berries: 0 },
     villagers: makeVillagers(rnd),
     nodes: generateWorld(rnd),
+    structures: [
+      {
+        id: WOODPILE_ID,
+        kind: 'woodpile',
+        pos: {
+          x: Math.cos(WOODPILE_ANGLE) * WOODPILE_RADIUS,
+          z: Math.sin(WOODPILE_ANGLE) * WOODPILE_RADIUS,
+        },
+        built: true,
+      },
+    ],
+    fire: { fuel: 70, max: 100 },
+    pot: { meals: 0 },
+    gardenMs: 0,
     events: [],
   };
 }
@@ -50,8 +60,19 @@ export function assignTask(state: GameState, villagerId: string, task: TaskId | 
     villager.targetNodeId = null;
     return;
   }
-  const target = nearestNode(state.nodes, villager.pos, TASK_KIND[task]);
-  const newTargetId = target ? target.id : null;
+  // Structure-targeting tasks resolve against structures; the rest against nodes.
+  const structureKind = TASK_STRUCTURE[task];
+  let newTargetId: string | null = null;
+  if (structureKind) {
+    const s = nearestStructure(state.structures, villager.pos, structureKind);
+    newTargetId = s ? s.id : null;
+  } else {
+    const kind = TASK_KIND[task];
+    if (kind) {
+      const node = nearestNode(state.nodes, villager.pos, kind);
+      newTargetId = node ? node.id : null;
+    }
+  }
   // Same task + same resolved target while active: no-op (keeps progress).
   if (task === villager.task && newTargetId === villager.targetNodeId && villager.state !== 'idle') {
     return;
@@ -67,8 +88,11 @@ export function tick(state: GameState, dtMs: number): void {
   state.events = [];
   if (!Number.isFinite(dtMs)) dtMs = 0; // NaN / ±Infinity: counters advance, nothing else
   if (!(dtMs > 0)) return; // dtMs = 0 (or was non-finite): no simulation movement
+  // Fire decay (DESIGN.md §3.2): 0.22/s, floor 0 — embers, never a failure state.
+  state.fire.fuel = Math.max(0, state.fire.fuel - FIRE_DECAY_PER_MS * dtMs);
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
+    if (villager.task === 'tend') tendKeeper(state, villager);
     switch (villager.state) {
       case 'walking':
         walk(state, villager, i, dtMs);
@@ -82,6 +106,48 @@ export function tick(state: GameState, dtMs: number): void {
       case 'idle':
         break;
     }
+  }
+}
+
+/** Resolves a target id against nodes OR structures (DESIGN.md §3.2). */
+function resolveTargetPos(state: GameState, targetId: string | null): Vec2 | null {
+  if (!targetId) return null;
+  const node = state.nodes.find((n) => n.id === targetId);
+  if (node) return node.pos;
+  const structure = state.structures.find((s) => s.id === targetId);
+  if (structure) return structure.pos;
+  return null;
+}
+
+/**
+ * Tend-fire keeper loop (DESIGN.md §3.2), re-evaluated every tick: carrying →
+ * walk to the campfire and deposit; else fetch a log while wood ≥ 1 && fuel ≤ 75;
+ * else stand watch at the fire (task stays, state `working`).
+ */
+function tendKeeper(state: GameState, villager: Villager): void {
+  let targetId: string;
+  if (villager.carrying) {
+    targetId = CAMPFIRE_ID;
+  } else if (state.resources.wood >= 1 && state.fire.fuel <= TEND_FETCH_FUEL) {
+    targetId = WOODPILE_ID;
+  } else {
+    targetId = CAMPFIRE_ID; // stand watch at the fire
+  }
+  villager.targetNodeId = targetId;
+  const pos = resolveTargetPos(state, targetId);
+  if (!pos) {
+    // Defensive: a missing post must never wedge the FSM.
+    villager.state = 'idle';
+    villager.task = null;
+    villager.targetNodeId = null;
+    return;
+  }
+  const dist = Math.hypot(pos.x - villager.pos.x, pos.z - villager.pos.z);
+  if (dist > ARRIVAL_DISTANCE) {
+    villager.state = 'walking';
+  } else if (villager.state !== 'working') {
+    villager.state = 'working';
+    villager.progressMs = 0;
   }
 }
 
@@ -99,43 +165,43 @@ function signedAngDiff(from: number, to: number): number {
 }
 
 function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
-  const node = state.nodes.find((n) => n.id === villager.targetNodeId);
-  if (!node) {
+  const center = resolveTargetPos(state, villager.targetNodeId);
+  if (!center) {
     // Defensive: a missing target must never wedge the FSM.
     villager.state = 'idle';
     villager.task = null;
     villager.targetNodeId = null;
     return;
   }
-  // `arrival` is the point that completes the walk; `target` is this tick's
-  // steering point (they differ only on the rest approach arc).
+  // `arrival` completes the walk; `target` is this tick's steering point (they
+  // differ only on the rest approach arc).
   let arrival: Vec2;
   let target: Vec2;
   if (villager.task === 'rest') {
-    // Resting villagers settle on a ring around the campfire, not inside it:
-    // whenever the angular gap to the spot exceeds 0.25 rad, swing around the
-    // flames via the bisector point on the r = 2.2 ring; otherwise head straight
-    // to the spot. No distance gate — the arc stays engaged at any radius, so
-    // the remaining chord can never cut close to the fire centre.
-    arrival = restSpot(node.pos, villagerIndex);
-    const angCur = Math.atan2(villager.pos.z - node.pos.z, villager.pos.x - node.pos.x);
-    const angSpot = Math.atan2(arrival.z - node.pos.z, arrival.x - node.pos.x);
+    // Settle on a ring around the campfire: while the angular gap to the spot
+    // exceeds 0.25 rad, swing via the bisector point on the r = 2.2 ring;
+    // otherwise head straight to the spot. No distance gate — the arc stays
+    // engaged at any radius, so the chord can never cut close to the fire.
+    arrival = restSpot(center, villagerIndex);
+    const angCur = Math.atan2(villager.pos.z - center.z, villager.pos.x - center.x);
+    const angSpot = Math.atan2(arrival.z - center.z, arrival.x - center.x);
     const dAng = signedAngDiff(angCur, angSpot);
     if (Math.abs(dAng) > REST_ARC_MAX_DANG) {
       const a = angCur + dAng / 2;
       target = {
-        x: node.pos.x + Math.cos(a) * REST_ARC_RADIUS,
-        z: node.pos.z + Math.sin(a) * REST_ARC_RADIUS,
+        x: center.x + Math.cos(a) * REST_ARC_RADIUS,
+        z: center.z + Math.sin(a) * REST_ARC_RADIUS,
       };
     } else {
       target = arrival;
     }
   } else if (villager.task === 'chop' || villager.task === 'berries') {
     // Work tasks aim at a per-villager slot around the node, not the node itself.
-    arrival = workSpot(node.pos, villagerIndex);
+    arrival = workSpot(center, villagerIndex);
     target = arrival;
   } else {
-    arrival = node.pos;
+    // tend (and any future task): straight to the target position.
+    arrival = center;
     target = arrival;
   }
   const dx = target.x - villager.pos.x;
@@ -148,7 +214,22 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     villager.pos.z += (dz / dist) * move;
   }
   if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= ARRIVAL_DISTANCE) {
-    villager.state = villager.task === 'rest' ? 'resting' : 'working';
+    if (villager.task === 'rest') {
+      villager.state = 'resting';
+    } else if (villager.task === 'tend') {
+      // Keeper arrival: deposit a carried log, or take one from the woodpile.
+      if (villager.targetNodeId === CAMPFIRE_ID && villager.carrying) {
+        state.fire.fuel = Math.min(state.fire.max, state.fire.fuel + LOG_FUEL);
+        villager.carrying = false;
+        state.events.push({ type: 'fuel-add', villagerId: villager.id });
+      } else if (villager.targetNodeId === WOODPILE_ID && !villager.carrying) {
+        state.resources.wood -= 1;
+        villager.carrying = true;
+      }
+      villager.state = 'working';
+    } else {
+      villager.state = 'working';
+    }
     villager.progressMs = 0;
     state.events.push({ type: 'arrived', villagerId: villager.id });
   }
@@ -170,7 +251,8 @@ function work(state: GameState, villager: Villager, dtMs: number): void {
 
 function rest(state: GameState, villager: Villager, dtMs: number): void {
   villager.progressMs += dtMs;
-  if (villager.progressMs >= REST_DURATION_MS) {
+  // Rest duration depends on the live fire (DESIGN.md §3.2).
+  if (villager.progressMs >= restDuration(state.fire)) {
     villager.state = 'idle';
     villager.task = null;
     villager.targetNodeId = null;

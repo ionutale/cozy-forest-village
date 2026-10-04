@@ -29,6 +29,8 @@ export function makeVillagers(rnd: () => number): Villager[] {
       facing: 0,
       targetNodeId: null,
       progressMs: 0,
+      fedMs: 0,
+      carrying: false,
     };
   });
 }

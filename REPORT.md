@@ -33,7 +33,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | F1 | Pre-playtest fixes: sim (I1, I3, I6, M7) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 + 1 fix | 24/24 tests ✅ · min fire dist 1.588 ✅ · work pair ≥ 0.55 ✅ | 4/5 |
 | F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | browser: Stop/labels/pulse ✅ · calls 117→89 ✅ · console clean ✅ | 4.5/5 |
 | F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 24/24 ✅ · console clean ✅ · audio dormant pre-gesture ✅ | 4.5/5 |
-| B1 | Sim: fire + Tend fire + warmth | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
+| B1 | Sim: fire + Tend fire + warmth | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 32/32 ✅ · 50-seed sweep 0 violations ✅ · keeper loop live ✅ | 4.5/5 |
 | B2 | Sim: build + cook/meals/eat + garden | queued | — | — | — | — |
 | B3 | Persist: localStorage save/load/autosave | queued | — | — | — | — |
 | B4 | Render: fire visuals + warm light | queued | — | — | — | — |
@@ -87,6 +87,20 @@ one remaining build warning (chunk > 500 kB, three.js).
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-04 — B1 complete (commit pending)
+- Model: `opencode/longcat-2.5-preview-free` (rate limits cleared) · 1 attempt, 0 fix rounds · 4.5/5.
+- Evidence: 32/32 tests (8 new: decay+floor, rest durations incl. boundaries, keeper fetch/deposit/cap/
+  stand-watch, world ring, initial shape). Orchestrator live: keeper ran wood 5→3, fuel 30→79 then
+  stood watch; decay 0.22/s observed; console clean.
+- Independent check: 50-seed sweep of the all-8-chop no-stacking invariant — 0 violations, worst pair
+  0.498 u (≥0.45), 0 stuck seeds. Screenshot `docs/validation/B1-world.png`.
+- Deviations accepted: (1) `src/ui/index.ts` got 3 lines adding `tend`/`cook` labels — required by the
+  `TaskId` union, zero behaviour change; (2) world-gen re-tuned (`min gap 2.5`, uniform-in-radius,
+  r≥7.5) to keep the no-stacking invariant honest after the inner-ring change — validated across seeds,
+  layout reads better (open village ring, forest hugging it).
+- Notes: `src/sim/index.ts` is 262 lines (over the ~220 guideline) — watch in B2; rest duration is
+  evaluated live against the fire (matches spec wording, no extra state).
 
 ### 2026-10-04 — Batch 2 spec written (user-approved design)
 - Scope: warmth (fire fuel + Tend fire + warmth effects), food (pot → cook → meals → eat/fed), village
