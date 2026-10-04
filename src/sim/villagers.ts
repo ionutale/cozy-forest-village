@@ -31,6 +31,7 @@ export function makeVillagers(rnd: () => number): Villager[] {
       progressMs: 0,
       fedMs: 0,
       carrying: false,
+      restMs: 0,
     };
   });
 }

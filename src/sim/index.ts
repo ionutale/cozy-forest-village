@@ -1,6 +1,6 @@
 // Pure simulation core (DESIGN.md §3, §3.1, §3.2). No DOM, no three.js, no
-// clocks — deterministic functions over GameState only. This module is the
-// only entry other layers may import; internal modules are implementation detail.
+// clocks — deterministic functions over GameState only. The only entry other
+// layers may import; internal modules are implementation detail.
 
 export type {
   Fire, GameState, Pot, ResourceNode, SimEvent, Structure, StructureKind,
@@ -12,15 +12,16 @@ import { mulberry32 } from './rng';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
 import {
-  ARRIVAL_DISTANCE, FIRE_DECAY_PER_MS, LOG_FUEL, MOVE_SPEED, TEND_FETCH_FUEL,
-  TASK_KIND, TASK_STRUCTURE, WORK_PERIOD_MS, nearestNode, nearestStructure,
-  restDuration, restSpot, workSpot,
+  ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
+  FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS, GARDEN_PERIOD_MS,
+  LOG_FUEL, MOVE_SPEED, STRUCTURE_COST, STRUCTURE_RING, STRUCTURE_RING_RADIUS,
+  TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE, WORK_PERIOD_MS, nearestNode,
+  nearestStructure, restDuration, restSpot, workSpot,
 } from './tasks';
 
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
-/** Woodpile sits on the village ring at 90°, r = 2.6 (DESIGN.md §3.2). */
-const WOODPILE_ANGLE = Math.PI / 2;
+const WOODPILE_ANGLE = Math.PI / 2; // 90°, r = 2.6 (DESIGN.md §3.2)
 const WOODPILE_RADIUS = 2.6;
 
 export function createInitialState(seed = 1): GameState {
@@ -41,6 +42,15 @@ export function createInitialState(seed = 1): GameState {
         },
         built: true,
       },
+      ...STRUCTURE_RING.map((spot) => ({
+        id: spot.id,
+        kind: spot.kind,
+        pos: {
+          x: Math.cos(spot.angle) * STRUCTURE_RING_RADIUS,
+          z: Math.sin(spot.angle) * STRUCTURE_RING_RADIUS,
+        },
+        built: false,
+      })),
     ],
     fire: { fuel: 70, max: 100 },
     pot: { meals: 0 },
@@ -65,7 +75,15 @@ export function assignTask(state: GameState, villagerId: string, task: TaskId | 
   let newTargetId: string | null = null;
   if (structureKind) {
     const s = nearestStructure(state.structures, villager.pos, structureKind);
-    newTargetId = s ? s.id : null;
+    if (!s || !s.built) {
+      // Structure not built: not actionable. Leave the villager idle.
+      villager.task = null;
+      villager.state = 'idle';
+      villager.targetNodeId = null;
+      villager.progressMs = 0;
+      return;
+    }
+    newTargetId = s.id;
   } else {
     const kind = TASK_KIND[task];
     if (kind) {
@@ -83,6 +101,22 @@ export function assignTask(state: GameState, villagerId: string, task: TaskId | 
   villager.state = 'walking';
 }
 
+/**
+ * Build a structure (DESIGN.md §3.2): spend its cost, set built, emit `built`.
+ * Returns false for unknown / already built / unaffordable — never partially spends.
+ */
+export function buildStructure(state: GameState, structureId: string): boolean {
+  const s = state.structures.find((x) => x.id === structureId);
+  if (!s || s.built) return false;
+  const cost = STRUCTURE_COST[s.kind];
+  if (state.resources.wood < cost.wood || state.resources.berries < cost.berries) return false;
+  state.resources.wood -= cost.wood;
+  state.resources.berries -= cost.berries;
+  s.built = true;
+  state.events.push({ type: 'built', structureId: s.id });
+  return true;
+}
+
 export function tick(state: GameState, dtMs: number): void {
   state.tick += 1;
   state.events = [];
@@ -90,8 +124,20 @@ export function tick(state: GameState, dtMs: number): void {
   if (!(dtMs > 0)) return; // dtMs = 0 (or was non-finite): no simulation movement
   // Fire decay (DESIGN.md §3.2): 0.22/s, floor 0 — embers, never a failure state.
   state.fire.fuel = Math.max(0, state.fire.fuel - FIRE_DECAY_PER_MS * dtMs);
+  // Garden (DESIGN.md §3.2): while built, +1 berry every 30000 ms.
+  const garden = state.structures.find((s) => s.kind === 'garden');
+  if (garden && garden.built) {
+    state.gardenMs += dtMs;
+    while (state.gardenMs >= GARDEN_PERIOD_MS) {
+      state.gardenMs -= GARDEN_PERIOD_MS;
+      state.resources.berries += 1;
+    }
+  }
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
+    // fedMs decays with dtMs in every state (DESIGN.md §3.2). Runs before the
+    // state switch so an eat this tick sets fedMs after the decay.
+    if (villager.fedMs > 0) villager.fedMs = Math.max(0, villager.fedMs - dtMs);
     if (villager.task === 'tend') tendKeeper(state, villager);
     switch (villager.state) {
       case 'walking':
@@ -200,7 +246,7 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     arrival = workSpot(center, villagerIndex);
     target = arrival;
   } else {
-    // tend (and any future task): straight to the target position.
+    // tend / cook (and any future task): straight to the target position.
     arrival = center;
     target = arrival;
   }
@@ -215,6 +261,16 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
   }
   if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= ARRIVAL_DISTANCE) {
     if (villager.task === 'rest') {
+      // Eat on arrival if the fire is warm and meals are available (DESIGN.md §3.2):
+      // consume 1 meal, rest 5500 ms, become well-fed. Otherwise rest by fire state.
+      if (state.fire.fuel >= FIRE_STEADY && state.pot.meals > 0) {
+        state.pot.meals -= 1;
+        villager.fedMs = FED_MS;
+        villager.restMs = EAT_REST_MS;
+        state.events.push({ type: 'eat', villagerId: villager.id });
+      } else {
+        villager.restMs = restDuration(state.fire);
+      }
       villager.state = 'resting';
     } else if (villager.task === 'tend') {
       // Keeper arrival: deposit a carried log, or take one from the woodpile.
@@ -236,9 +292,31 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
 }
 
 function work(state: GameState, villager: Villager, dtMs: number): void {
+  if (villager.task === 'cook') {
+    // Cook (DESIGN.md §3.2): channel 3000 ms per meal; costs 3 berries + 1 wood.
+    // Loop while ingredients last; when they run out → idle, task cleared.
+    if (state.resources.berries < COOK_BERRIES || state.resources.wood < COOK_WOOD) {
+      villager.state = 'idle';
+      villager.task = null;
+      villager.targetNodeId = null;
+      villager.progressMs = 0;
+      return;
+    }
+    villager.progressMs += dtMs;
+    while (villager.progressMs >= COOK_CHANNEL_MS) {
+      villager.progressMs -= COOK_CHANNEL_MS;
+      state.resources.berries -= COOK_BERRIES;
+      state.resources.wood -= COOK_WOOD;
+      state.pot.meals += 1;
+      state.events.push({ type: 'meal-cooked', villagerId: villager.id });
+    }
+    return;
+  }
+  // chop / berries: well-fed villagers work 15 % faster (DESIGN.md §3.2).
+  const period = villager.fedMs > 0 ? FED_WORK_PERIOD_MS : WORK_PERIOD_MS;
   villager.progressMs += dtMs;
-  while (villager.progressMs >= WORK_PERIOD_MS) {
-    villager.progressMs -= WORK_PERIOD_MS;
+  while (villager.progressMs >= period) {
+    villager.progressMs -= period;
     if (villager.task === 'chop') {
       state.resources.wood += 1;
       state.events.push({ type: 'chop', villagerId: villager.id });
@@ -251,12 +329,14 @@ function work(state: GameState, villager: Villager, dtMs: number): void {
 
 function rest(state: GameState, villager: Villager, dtMs: number): void {
   villager.progressMs += dtMs;
-  // Rest duration depends on the live fire (DESIGN.md §3.2).
-  if (villager.progressMs >= restDuration(state.fire)) {
+  // Rest duration is committed at arrival (DESIGN.md §3.2): 5500 ms when eating,
+  // else restDuration(fire) at the moment of arrival.
+  if (villager.progressMs >= villager.restMs) {
     villager.state = 'idle';
     villager.task = null;
     villager.targetNodeId = null;
     villager.progressMs = 0;
+    villager.restMs = 0;
     state.events.push({ type: 'rest-done', villagerId: villager.id });
   }
 }

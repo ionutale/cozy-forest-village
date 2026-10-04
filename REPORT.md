@@ -34,7 +34,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | browser: Stop/labels/pulse ✅ · calls 117→89 ✅ · console clean ✅ | 4.5/5 |
 | F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 24/24 ✅ · console clean ✅ · audio dormant pre-gesture ✅ | 4.5/5 |
 | B1 | Sim: fire + Tend fire + warmth | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 32/32 ✅ · 50-seed sweep 0 violations ✅ · keeper loop live ✅ | 4.5/5 |
-| B2 | Sim: build + cook/meals/eat + garden | queued | — | — | — | — |
+| B2 | Sim: build + cook/meals/eat + garden | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 41/41 ✅ · live: costs/meals/eat/garden exact ✅ | 4.5/5 |
 | B3 | Persist: localStorage save/load/autosave | queued | — | — | — | — |
 | B4 | Render: fire visuals + warm light | queued | — | — | — | — |
 | B5 | Render: structures + ghosts + picking | queued | — | — | — | — |
@@ -88,7 +88,18 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B1 complete (commit pending)
+### 2026-10-04 — B2 complete (commit pending)
+- Model: `opencode/longcat-2.5-preview-free` · 1 attempt, 0 fix rounds · 4.5/5.
+- Evidence: 41/41 tests (9 new: ring shape, build spend/refuse/never-partial, cook loop + exact costs +
+  auto-idle, eat gating by fire, 1190 ms fed boundary, garden timing). Orchestrator live: pot 40→20 wood,
+  3 meals cooked (wood −3, berries −9 exact), a rester ate (meals 4→3, `fedMs` 54 884, `restMs` 5500),
+  garden +1 berry at 30 s, unaffordable/unknown builds refused, console clean.
+- Contract addition ratified: `Villager.restMs` (rest duration committed at rest start) — DESIGN §3/§3.2
+  updated. Cost if wrong: one state field; supports the 5500 ms eating rest exactly.
+- Notes: `src/sim/index.ts` now 342 lines (guideline ~220) — flagged for B9 review; logic is cohesive
+  but extraction candidates exist (tend/rest helpers → tasks.ts).
+
+### 2026-10-04 — B1 complete (commit b738c62)
 - Model: `opencode/longcat-2.5-preview-free` (rate limits cleared) · 1 attempt, 0 fix rounds · 4.5/5.
 - Evidence: 32/32 tests (8 new: decay+floor, rest durations incl. boundaries, keeper fetch/deposit/cap/
   stand-watch, world ring, initial shape). Orchestrator live: keeper ran wood 5→3, fuel 30→79 then

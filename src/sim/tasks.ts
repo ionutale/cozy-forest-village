@@ -38,6 +38,43 @@ export function restDuration(fire: Fire): number {
   return 7000;
 }
 
+// ── Batch 2: food & growth (DESIGN.md §3.2) ─────────────────────────────
+
+/** Cook channel: 3000 ms per meal. */
+export const COOK_CHANNEL_MS = 3000;
+/** Each meal costs 3 berries + 1 wood. */
+export const COOK_BERRIES = 3;
+export const COOK_WOOD = 1;
+/** Eating sets fedMs to 60000 (well-fed for 60 s). */
+export const FED_MS = 60000;
+/** Well-fed work period: 1190 ms per yield (15 % faster). */
+export const FED_WORK_PERIOD_MS = 1190;
+/** An eating villager rests 5500 ms. */
+export const EAT_REST_MS = 5500;
+/** Garden yields +1 berry every 30000 ms while built. */
+export const GARDEN_PERIOD_MS = 30000;
+
+/** Build cost per structure kind (DESIGN.md §3.2). */
+export const STRUCTURE_COST: Record<StructureKind, { wood: number; berries: number }> = {
+  woodpile: { wood: 0, berries: 0 }, // pre-built; never purchased
+  pot: { wood: 20, berries: 0 },
+  bench: { wood: 15, berries: 0 },
+  garden: { wood: 25, berries: 0 },
+  lantern: { wood: 10, berries: 0 },
+  feeder: { wood: 10, berries: 5 },
+};
+
+/** The six build spots on the village ring (r = 5.2, angles 30°–330°). */
+export const STRUCTURE_RING_RADIUS = 5.2;
+export const STRUCTURE_RING: ReadonlyArray<{ id: string; kind: StructureKind; angle: number }> = [
+  { id: 'pot', kind: 'pot', angle: Math.PI / 6 }, // 30°
+  { id: 'bench', kind: 'bench', angle: Math.PI / 2 }, // 90°
+  { id: 'garden', kind: 'garden', angle: (5 * Math.PI) / 6 }, // 150°
+  { id: 'lantern-a', kind: 'lantern', angle: (7 * Math.PI) / 6 }, // 210°
+  { id: 'lantern-b', kind: 'lantern', angle: (3 * Math.PI) / 2 }, // 270°
+  { id: 'feeder', kind: 'feeder', angle: (11 * Math.PI) / 6 }, // 330°
+];
+
 /** Node-targeting tasks (DESIGN.md §3.1). */
 export const TASK_KIND: Partial<Record<TaskId, ResourceNode['kind']>> = {
   chop: 'tree',

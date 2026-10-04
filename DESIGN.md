@@ -55,6 +55,7 @@ export interface Villager {
   pos: Vec2;
   facing: number;            // radians, updated while walking (render reads it)
   progressMs: number;        // ms in the current activity (work yield / rest timer); 0 when idle or walking
+  restMs: number;            // rest duration committed when the rest starts (fire state + meal at arrival)
   fedMs: number;             // >0 → well-fed: work period 1190 ms; decays with time in every state
   carrying: boolean;         // keeper carrying a log (render shows the carry pose)
   targetNodeId: string | null;  // resolves against nodes OR structures
@@ -162,7 +163,8 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
 - **Tend fire** (`tend`): keeper loop, re-evaluated every tick — if `carrying` → walk to the campfire,
   deposit (+25 fuel, event `fuel-add`); else if `wood ≥ 1 && fuel ≤ 75` → walk to the woodpile, take a
   log (`wood −1`, `carrying = true`); else stand watch at the fire (task stays, state `working`).
-- **Rest duration by fire**: fuel ≥33 → 4000 ms · fuel >0 → 5500 ms · fuel = 0 → 7000 ms.
+- **Rest duration by fire** (evaluated at rest start, committed to `villager.restMs`): fuel ≥33 →
+  4000 ms · fuel >0 → 5500 ms · fuel = 0 → 7000 ms.
 - **Cook** (`cook`): requires the pot built; channel **3000 ms** per meal — costs **3 berries + 1 wood**,
   yields 1 meal (`pot.meals +1`, event `meal-cooked`); loops while ingredients last; when they run
   out → idle, task cleared (like rest completion).

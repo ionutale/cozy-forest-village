@@ -46,6 +46,7 @@ export interface Villager {
   progressMs: number; // ms accumulated in the current activity (work yield / rest timer); 0 while idle or walking
   fedMs: number; // >0 → well-fed: work period 1190 ms; decays with time in every state
   carrying: boolean; // keeper carrying a log (render shows the carry pose)
+  restMs: number; // committed rest duration for the current rest; 0 when not resting
 }
 
 export interface SimEvent {

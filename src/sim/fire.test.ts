@@ -131,7 +131,7 @@ describe('world gen & initial shape (batch 2)', () => {
     expect(a.fire).toEqual({ fuel: 70, max: 100 });
     expect(a.pot).toEqual({ meals: 0 });
     expect(a.gardenMs).toBe(0);
-    expect(a.structures).toHaveLength(1);
+    expect(a.structures).toHaveLength(7); // woodpile + six ring spots (B2)
     expect(a.villagers.every((v) => v.fedMs === 0 && v.carrying === false)).toBe(true);
   });
 });
