@@ -23,7 +23,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 
 | # | Task | Status | Model | Attempts | Validation | Score |
 |---|---|---|---|---|---|---|
-| T1 | Scaffold + cozy UI shell + base scene | in progress | `opencode/space-bunny-free#xhigh` | — | — | — |
+| T1 | Scaffold + cozy UI shell + base scene | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build/test ✅ · browser ✅ · console clean ✅ · cozy ✅ | 4.5/5 |
 | T2 | Pure sim core (FSM, tasks, RNG) + vitest | queued | — | — | — | — |
 | T3 | Forest environment (InstancedMesh, light, fog) | queued | — | — | — | — |
 | T4 | Villagers (primitives + hats + procedural anim) | queued | — | — | — | — |

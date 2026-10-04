@@ -1,0 +1,18 @@
+/* Design tokens — binding values from DESIGN.md §4. Mirrored by src/render/palette.ts. */
+:root {
+  --paper: #fdf6e9;
+  --paper-2: #f6ead5;
+  --ink: #4a3b2f;
+  --ink-soft: #7d6c58;
+  --border: #e3d3b7;
+  --accent: #e08a3c;
+  --accent-ink: #fff8ee;
+  --leaf: #7fa653;
+  --berry: #b0577a;
+  --wood: #8c6242;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --gap: 8px;
+  --shadow: 0 6px 18px rgba(74, 59, 47, 0.18);
+  --font: "Nunito", "Trebuchet MS", system-ui, sans-serif;
+}

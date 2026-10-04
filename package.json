@@ -1,0 +1,23 @@
+{
+  "name": "cozy-forest-village",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A cozy 3D village sim in a forest clearing.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2",
+    "vitest": "^5.0.3"
+  }
+}

@@ -41,20 +41,28 @@ docs/tasks/           task briefs + implementer reports (orchestration artifacts
 
 ```ts
 export type TaskId = 'chop' | 'berries' | 'rest';
+export type VillagerState = 'idle' | 'walking' | 'working' | 'resting';
 export interface Vec2 { x: number; z: number }
 export interface ResourceNode { id: string; kind: 'tree' | 'bush' | 'campfire'; pos: Vec2 }
 export interface Villager {
   id: string; name: string; hatColor: string;
   task: TaskId | null;
-  state: 'idle' | 'walking' | 'working' | 'resting';
+  state: VillagerState;
   pos: Vec2;
+  facing: number;            // radians, updated while walking (render reads it)
   targetNodeId: string | null;
 }
+export interface SimEvent {
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done';
+  villagerId: string;
+}
 export interface GameState {
-  tick: number; seed: number;
+  tick: number;              // increments once per tick() call
+  seed: number;
   resources: { wood: number; berries: number };
   villagers: Villager[];
   nodes: ResourceNode[];
+  events: SimEvent[];        // events from the latest tick; cleared at the start of each tick
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -80,6 +88,19 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 
 Contract rules: other layers import **types** from `../sim` and **nothing else** from it. Internal
 sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementation detail.
+
+### 3.1 Simulation rules (slice 1 — binding numbers)
+
+- Movement: straight line (no pathfinding), speed **2.2 units/s**; arrival when distance **≤ 0.45**.
+- Work: one yield per **1400 ms** of continuous work — `chop` → wood +1, `berries` → berries +1.
+  Villagers keep working until reassigned; nodes never deplete in slice 1.
+- Rest: at the campfire; after **4000 ms** the villager becomes idle, `task` clears, one `rest-done` event.
+- Task → node kind: chop → tree, berries → bush, rest → campfire. Target = nearest node of that
+  kind (squared distance; ties broken by node id ascending).
+- `assignTask(state, id, null)` → idle, target cleared. Reassigning mid-walk retargets immediately.
+- Events: `tick()` clears `state.events`, then appends this tick's events; consumers read after `tick`.
+- Determinism: same seed + same call sequence → identical state. No `Math.random`, no clocks inside `sim/`.
+- `facing` updates while walking: `atan2(dx, dz)` in three.js convention (x right, z toward viewer).
 
 ### Villager roster (fixed, used by T1 stub and T2 generation)
 

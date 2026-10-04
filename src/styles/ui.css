@@ -1,0 +1,157 @@
+/* Cozy UI — exactly three zones: resource HUD, villager panel, task popover.
+   Shared paper/lift styles first, then one section per zone. Short rules sit on one
+   line; the bigger layout blocks stay expanded for readability. */
+
+body { font-family: var(--font); color: var(--ink); background: var(--paper-2); -webkit-font-smoothing: antialiased; }
+
+/* The canvas keeps its own pointer events; only the panels capture them. */
+#ui { position: fixed; inset: 0; pointer-events: none; font-size: 15px; }
+
+#ui > * { pointer-events: auto; }
+
+/* Keeps declared widths honest once padding is added (panel really is 250px wide). */
+#ui *, #ui *::before, #ui *::after { box-sizing: border-box; }
+
+.panel { background: var(--paper); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+
+.lift { transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease; }
+
+.lift:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(74, 59, 47, 0.24); }
+
+/* Zone 1 — resource HUD */
+
+#hud { position: absolute; top: 16px; left: 16px; display: flex; gap: var(--gap); padding: 8px; }
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 6px 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.pill-icon { width: 20px; height: 20px; flex: none; }
+
+.pill-label { color: var(--ink-soft); font-weight: 600; }
+
+.pill-value { min-width: 1.5ch; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.pill[data-res='wood'] .pill-icon,
+.pill[data-res='wood'] .pill-value {
+  color: var(--wood);
+}
+
+.pill[data-res='berries'] .pill-icon,
+.pill[data-res='berries'] .pill-value {
+  color: var(--berry);
+}
+
+/* Zone 2 — villager panel */
+
+#villager-panel {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 250px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 16px;
+  overflow-y: auto; /* cozy scrollbar rules below, so no default grey bar shows */
+}
+
+.panel-head { display: flex; flex-direction: column; gap: var(--gap); }
+
+.panel-title { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; }
+
+.panel-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 12.5px; }
+
+#villager-list { display: flex; flex-direction: column; gap: var(--gap); }
+
+.villager-card {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.villager-card:focus-visible,
+.task-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A lifted selected card would shift under the pointer while it stays highlighted. */
+.villager-card.selected { transform: none; background: var(--paper); border-color: var(--accent); box-shadow: 0 4px 12px rgba(74, 59, 47, 0.16); }
+
+.hat-dot { width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 50%; }
+
+.task-label { color: var(--ink-soft); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+.villager-card.selected .task-label { color: var(--accent); }
+
+/* Zone 3 — task popover: docked as a footer below the list, so no card is ever covered. */
+
+#task-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 24px rgba(74, 59, 47, 0.26);
+  animation: pop-in 160ms ease;
+}
+
+#task-popover[hidden] { display: none; }
+
+@keyframes pop-in {
+from { opacity: 0; transform: translateY(4px); }
+to { opacity: 1; transform: translateY(0); }
+}
+
+.popover-title { margin: 0; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
+
+.task-btn {
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  color: var(--ink);
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.task-btn:hover { border-color: var(--accent); }
+
+.task-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
+#villager-panel::-webkit-scrollbar { width: 8px; }
+
+#villager-panel::-webkit-scrollbar-track { background: transparent; }
+
+#villager-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #ui,
+  #ui * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
