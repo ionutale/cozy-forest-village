@@ -38,7 +38,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B3 | Persist: localStorage save/load/autosave | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 49/49 ✅ · live: build → reload → restored ✅ · corrupt → fresh ✅ | 4.5/5 |
 | B4 | Render: fire visuals + warm light | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · fuel 70/20/0 screenshots ✅ · calls 86 ✅ | 4.5/5 |
 | B5 | Render: structures + ghosts + picking | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · pick 7/7 (cross-validated probe) ✅ · calls 120/154 ✅ | 5/5 |
-| B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | queued | — | — | — | — |
+| B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · stir 1.19Hz · shiver 6.96Hz · hearts pooled 4 · calls 168 ✅ | 4.5/5 |
 | B7 | UI: fuel pill, task grid, build cards, reset | queued | — | — | — | — |
 | B8 | Audio: crackle + new SFX | queued | — | — | — | — |
 | B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
@@ -88,7 +88,17 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B5 complete (dispatch tool reported an abort after the work had landed; validated anyway)
+### 2026-10-04 — B6 complete (commit pending)
+- Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
+- Deliverable: carry log + raised arms while `carrying`, cook stir (`working`+`cook`), pooled heart
+  sprites on `eat` events (max 4) with savoring bob, embers shiver (`fuel 0`, idle/resting only).
+- Measured in-browser (temporary probe, removed): stir 1.19 Hz, shiver 6.96 Hz at ±0.00593 u (within
+  the ±0.006 cap), hearts pooled at exactly 4 on a double-meal request, none on plain rests; worst-case
+  calls 168 (<200). Screenshots `docs/validation/B6-*.png` (carry at the fire, hearts above the eater).
+- Carried forward: `villagers.ts` is 511 lines (longest render file) — B9's review should weigh a split;
+  render-layer motions have no unit tests (browser-measured, documented).
+
+### 2026-10-04 — B5 complete (commit 901cfb5)
 - Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 5/5.
 - Deliverable: `src/render/structures.ts` (six models + ghosts from one shared code path, bowls/steam/
   sprout-growth/lantern breath as pure functions of state+time), `pickStructure` on the handle with a
