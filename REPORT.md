@@ -30,9 +30,38 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build ✅ · 19/19 ✅ · browser: select/clear/drag/pulse ✅ | 4.5/5 |
 | T6 | Ambient life + procedural WebAudio | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 19/19 ✅ · browser: motion ✅ · calls 117 ✅ · console clean ✅ | 4.5/5 |
 | T7 | Final review + 20 proposals | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 0 Critical · 6 Important · 6 Minor; evidence-backed | 5/5 |
-| F1 | Pre-playtest fixes: sim (I1, I3, I6, M7) | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
-| F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | queued | — | — | — | — |
-| F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | queued | — | — | — | — |
+| F1 | Pre-playtest fixes: sim (I1, I3, I6, M7) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 + 1 fix | 24/24 tests ✅ · min fire dist 1.588 ✅ · work pair ≥ 0.55 ✅ | 4/5 |
+| F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | browser: Stop/labels/pulse ✅ · calls 117→89 ✅ · console clean ✅ | 4.5/5 |
+| F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 24/24 ✅ · console clean ✅ · audio dormant pre-gesture ✅ | 4.5/5 |
+
+## Improvement candidates — round 1 (curated 10, easy → hard)
+
+Curated by the orchestrator from T7's 20 proposals (model: mimo-v2.6-flash-free) + QA notes.
+The user playtests, adds their own list, then picks ~5–6 for batch 2.
+
+1. [easy] **Campfire life** — flame flicker (±6 % breathe) + one warm, low-intensity PointLight. The
+   single cheapest win for the whole clearing. (T7 #5)
+2. [easy] **Keyboard tasks** — `1/2/3/0` assigns chop/berries/rest/stop to the selected villager. No UI
+   change, eight clicks become one. (T7 #7)
+3. [easy] **Reduced-motion in 3D** — honour `prefers-reduced-motion` in the render layer (halve bob/sway,
+   stop the ring pulse), matching what CSS already does. (T7 #8)
+4. [easy] **Progress bar on the selected card** — a hairline bar driven by `progressMs`; completes the
+   state-labels added in F2. (T7 #4)
+5. [medium] **Gathering reads in the world** — berry dots on bushes; a pale cut-mark appears on the tree
+   being chopped. Resources currently grow from invisible work. (T7 #10)
+6. [medium] **Idle wander** — unassigned villagers stroll to a fresh spot every 6–10 s (well under walk
+   speed). Eight statues around a fire is the emptiest the game ever looks. (T7 #13)
+7. [medium] **Resting pose** — sit/lean toward the fire instead of standing; slower breathing. (T7 #12)
+8. [medium] **Stockpile props** — a log pile and berry basket near the campfire whose count tracks the
+   HUD numbers (capped). Turns abstract counters into scenery. (T7 #11)
+9. [medium] **Audio warmth** — quiet fire crackle + soft footsteps between chirps (procedural, no
+   assets). Fills the silence without touching UI. (T7 #6)
+10. [hard] **The campfire burns wood** — a `fuel` value decays over time; flame scale, light radius and
+    crackle density track it; chopping feeds it. The first real gameplay loop. (T7 #20)
+
+Honourable mentions not in the 10: camera focus on selected villager (T7 #9), recent-activity line
+(T7 #16), batch "assign to all idle" (T7 #19), `hash01`/`mulberry32` dedupe (M9), code-split for the
+one remaining build warning (chunk > 500 kB, three.js).
 
 ## Log
 
@@ -50,7 +79,26 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T7 review (commit pending)
+### 2026-10-04 — Pre-playtest fix batch F1–F3 complete
+- **F1 sim** (`muse-spark#xhigh` after longcat rate-limit): work arrival slots r=0.75 golden-angle (no
+  stacking; measured min pair 0.55, bodies ~0.34 wide), rest approach arc without radius gate (measured
+  min fire distance 1.588), `tick` non-finite guard, same-task no-op. 24/24 tests. Needed one extra
+  round: first attempt left the `rv > 2.2` gate (min dist 0.563) and a too-tight slot radius.
+- **F2 UI/render** (`space-bunny#xhigh`): Stop button (aria-disabled when idle), card labels show
+  `Walking…`/task/`Resting`/`Idle`, pulse throttle 600 ms/pill, villager shadows trimmed (calls
+  117→89), frame-loop try/catch + one-shot log, `pagehide` teardown. Round 2 fixed the pagehide
+  zombie (loop keeps scheduling after dispose → GL errors): `stopped` flag stops the loop; `pageshow`
+  reloads for a clean restore. Orchestrator browser pass: all paths ✅, console clean.
+- **F3 audio/env** (`muse-spark#xhigh`): SFX = max one per batch + 400 ms per-type cooldown + ±8 %
+  variation; voice chains disconnect on `ended`; `PALETTE.disc` replaces the hardcoded disc colour;
+  `__cozyAudio` cleaned on dispose. Console clean, audio dormant pre-gesture.
+- Rulings: work-slot worst case (chord − 2×arrival slop) justified r=0.75 with test ≥0.45; the rest
+  arc drops the radius gate (any large `dAng` swings via r=2.2) — DESIGN §3.1 updated both times.
+  Cost if wrong: slightly wider work spread / slightly longer rest walks; all revertible.
+- **Slice 1 is feature-complete and validated.** Dev server on port 5188 for the human playtest.
+  Audio audibility = human check (synthetic events are not user activation).
+
+### 2026-10-04 — T7 review (commit 48b6bba)
 - Model: `opencode/mimo-v2.6-flash-free` (fresh family, read-only) · delivered 0 Critical / 6 Important /
   6 Minor + 20 improvement proposals. Score 5/5 — measured claims (`node -e` re-runs), file:line evidence,
   clean sections stated explicitly. Report: `docs/tasks/T07-report.md`.
