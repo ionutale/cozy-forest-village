@@ -33,6 +33,15 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | F1 | Pre-playtest fixes: sim (I1, I3, I6, M7) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 + 1 fix | 24/24 tests ✅ · min fire dist 1.588 ✅ · work pair ≥ 0.55 ✅ | 4/5 |
 | F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | browser: Stop/labels/pulse ✅ · calls 117→89 ✅ · console clean ✅ | 4.5/5 |
 | F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 24/24 ✅ · console clean ✅ · audio dormant pre-gesture ✅ | 4.5/5 |
+| B1 | Sim: fire + Tend fire + warmth | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
+| B2 | Sim: build + cook/meals/eat + garden | queued | — | — | — | — |
+| B3 | Persist: localStorage save/load/autosave | queued | — | — | — | — |
+| B4 | Render: fire visuals + warm light | queued | — | — | — | — |
+| B5 | Render: structures + ghosts + picking | queued | — | — | — | — |
+| B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | queued | — | — | — | — |
+| B7 | UI: fuel pill, task grid, build cards, reset | queued | — | — | — | — |
+| B8 | Audio: crackle + new SFX | queued | — | — | — | — |
+| B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -78,6 +87,14 @@ one remaining build warning (chunk > 500 kB, three.js).
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-04 — Batch 2 spec written (user-approved design)
+- Scope: warmth (fire fuel + Tend fire + warmth effects), food (pot → cook → meals → eat/fed), village
+  growth (6 build spots + build API), localStorage save/load (schema v1), fuel pill + task grid +
+  structure cards + reset (inside the existing three zones).
+- Spec: DESIGN §3 (contracts incl. `pickStructure`, `selectStructure`, `build`, `resetVillage`),
+  §3.2 (all binding numbers), §6 (explicit allowed additions). Briefs B1–B9 in `docs/tasks/`.
+- Task order: sim → persist → render → UI → audio → review (each validated before the next).
 
 ### 2026-10-04 — Pre-playtest fix batch F1–F3 complete
 - **F1 sim** (`muse-spark#xhigh` after longcat rate-limit): work arrival slots r=0.75 golden-angle (no

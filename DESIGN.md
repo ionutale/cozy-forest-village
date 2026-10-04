@@ -40,10 +40,14 @@ docs/tasks/           task briefs + implementer reports (orchestration artifacts
 `src/sim/index.ts` — the only entry other layers may import:
 
 ```ts
-export type TaskId = 'chop' | 'berries' | 'rest';
+export type TaskId = 'chop' | 'berries' | 'rest' | 'tend' | 'cook';
 export type VillagerState = 'idle' | 'walking' | 'working' | 'resting';
+export type StructureKind = 'woodpile' | 'pot' | 'garden' | 'bench' | 'lantern' | 'feeder';
 export interface Vec2 { x: number; z: number }
 export interface ResourceNode { id: string; kind: 'tree' | 'bush' | 'campfire'; pos: Vec2 }
+export interface Structure { id: string; kind: StructureKind; pos: Vec2; built: boolean }
+export interface Fire { fuel: number; max: number }
+export interface Pot { meals: number }
 export interface Villager {
   id: string; name: string; hatColor: string;
   task: TaskId | null;
@@ -51,11 +55,14 @@ export interface Villager {
   pos: Vec2;
   facing: number;            // radians, updated while walking (render reads it)
   progressMs: number;        // ms in the current activity (work yield / rest timer); 0 when idle or walking
-  targetNodeId: string | null;
+  fedMs: number;             // >0 → well-fed: work period 1190 ms; decays with time in every state
+  carrying: boolean;         // keeper carrying a log (render shows the carry pose)
+  targetNodeId: string | null;  // resolves against nodes OR structures
 }
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done';
-  villagerId: string;
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built';
+  villagerId?: string;
+  structureId?: string;
 }
 export interface GameState {
   tick: number;              // increments once per tick() call
@@ -63,10 +70,15 @@ export interface GameState {
   resources: { wood: number; berries: number };
   villagers: Villager[];
   nodes: ResourceNode[];
+  structures: Structure[];
+  fire: Fire;
+  pot: Pot;
+  gardenMs: number;          // accumulator for the built garden's +1 berry / 30000 ms
   events: SimEvent[];        // events from the latest tick; cleared at the start of each tick
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
+export function buildStructure(state: GameState, structureId: string): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -84,6 +96,8 @@ export interface RenderHandle {
   setSelected(villagerId: string | null): void;
   /** T5: project a villager to screen client px (testability + UI anchoring). */
   projectVillager(villagerId: string): { x: number; y: number } | null;
+  /** B5: screen-space hit test against structure meshes. */
+  pickStructure(clientX: number, clientY: number): string | null;
 }
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
@@ -97,12 +111,18 @@ export interface UIActions {
   /** T5: fires on internal selection changes (card click, dismissal) so the world ring stays in
       sync. The external select() path does NOT fire it (that path is already the sync target). */
   onSelect(villagerId: string | null): void;
+  /** B7: build a ghost structure. */
+  build(structureId: string): void;
+  /** B7: wipe the save and start a fresh village. */
+  resetVillage(): void;
 }
 export interface UIHandle {
   render(state: GameState): void;
   dispose(): void;
   /** T5: external selection (e.g. clicking a villager in the 3D scene). */
   select(villagerId: string | null): void;
+  /** B7: external structure selection (ghost or built). */
+  selectStructure(structureId: string | null): void;
 }
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
@@ -133,6 +153,30 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
   arrival, and on completion. All timers live in the state — no hidden per-object storage.
 - Determinism: same seed + same call sequence → identical state. No `Math.random`, no clocks inside `sim/`.
 - `facing` updates while walking: `atan2(dx, dz)` in three.js convention (x right, z toward viewer).
+
+### 3.2 Batch 2 — warmth, food, growth (binding numbers)
+
+- **Fire**: `fuel` 0–100, starts 70, decays **0.22/s** (floor 0 — embers, never a failure state).
+  States: roaring **≥66** · steady **≥33** · dim **>0** · embers **=0**. One log = **+25** fuel
+  (cap 100); logs come from `resources.wood`.
+- **Tend fire** (`tend`): keeper loop, re-evaluated every tick — if `carrying` → walk to the campfire,
+  deposit (+25 fuel, event `fuel-add`); else if `wood ≥ 1 && fuel ≤ 75` → walk to the woodpile, take a
+  log (`wood −1`, `carrying = true`); else stand watch at the fire (task stays, state `working`).
+- **Rest duration by fire**: fuel ≥33 → 4000 ms · fuel >0 → 5500 ms · fuel = 0 → 7000 ms.
+- **Cook** (`cook`): requires the pot built; channel **3000 ms** per meal — costs **3 berries + 1 wood**,
+  yields 1 meal (`pot.meals +1`, event `meal-cooked`); loops while ingredients last; when they run
+  out → idle, task cleared (like rest completion).
+- **Eat**: a villager arriving to rest at `fuel ≥ 33` with `pot.meals > 0` consumes 1 meal
+  (`pot.meals −1`), rests **5500 ms**, sets `fedMs = 60000`, event `eat`. Well-fed villagers work
+  15 % faster (**1190 ms** per yield); `fedMs` decays with `dtMs` in every state.
+- **Structures**: fixed ring r=5.2 at angles 30°, 90°, 150°, 210°, 270°, 330° →
+  pot (20 wood) · bench (15 wood) · garden (25 wood) · lantern (10 wood) · lantern (10 wood) ·
+  feeder (10 wood + 5 berries). `woodpile` is pre-built at (90°, r=2.6).
+  `buildStructure(state, id)` spends the cost, sets `built = true`, emits `built`; returns false for
+  unknown / already built / unaffordable.
+- **Garden**: while built, +1 berry every **30000 ms** (`gardenMs` in the state).
+- **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
+- Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
 ### Villager roster (fixed, used by T1 stub and T2 generation)
 
@@ -184,6 +228,8 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 | `src/render/index.ts`, `src/main.ts` | T1 creates; T3 edits render/index.ts; T5 modifies |
 | `src/ui/**`, `src/styles/**` | T1 creates; T5 refines |
 | `src/render/ambient.ts`, `src/audio/**` | T6 |
+| `src/persist/**` | B3 (batch 2) |
+| `src/render/structures.ts` | B5 (batch 2) |
 | README.md, index.html, configs | T1 creates; later tasks only with a ruling |
 
 ## 6. Anti-bloat rules (binding)
@@ -192,6 +238,9 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 - No settings menus, modals, tutorials, or new permanent panels unless the user asks.
 - New features fold into an existing zone or replace something in it.
 - No feature may add a fourth zone; the orchestrator rejects such diffs.
+- Batch 2 explicitly allows, *inside* the three zones: a Fuel pill in the HUD (with a mini bar), a 2×3
+  task grid in the popover (Chop · Berries · Rest · Tend fire · Cook · Stop), structure cards in the
+  same popover (ghost → Build; built → status), and a two-step reset (⟲) in the HUD. Nothing else.
 
 ## 7. Validation protocol (orchestrator)
 
