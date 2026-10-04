@@ -2,11 +2,15 @@ import type { GameState, TaskId } from '../sim';
 
 export interface UIActions {
   assignTask(villagerId: string, task: TaskId | null): void;
+  /** Fired whenever the UI's own selection changes (card click, Escape, outside click). */
+  onSelect(villagerId: string | null): void;
 }
 
 export interface UIHandle {
   render(state: GameState): void;
   dispose(): void;
+  /** External selection (e.g. clicking a villager in the 3D scene); null clears it. */
+  select(villagerId: string | null): void;
 }
 
 const TASK_ORDER: ReadonlyArray<TaskId> = ['chop', 'berries', 'rest'];
@@ -61,11 +65,22 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const popoverTitle = must<HTMLElement>(popover, '.popover-title');
   const cards = new Map<string, CardParts>();
   let selectedId: string | null = null;
+  // A select() before the first render() has nothing to read the villager from yet, so
+  // park the id and apply it as soon as cards exist.
+  let pendingSelection: string | null | undefined;
 
-  function closePopover(): void {
+  /** Silent reset of the card + popover. Never notifies, so it is safe to reuse. */
+  function clearSelectionVisuals(): void {
     cards.get(selectedId ?? '')?.card.classList.remove('selected');
     selectedId = null;
     popover.hidden = true;
+  }
+
+  /** Dismissal as a user action (Escape, outside click): the world layer must follow. */
+  function closePopover(): void {
+    if (popover.hidden) return;
+    clearSelectionVisuals();
+    actions.onSelect(null);
   }
 
   function syncActiveButtons(state: GameState): void {
@@ -75,8 +90,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     }
   }
 
-  function openPopover(card: CardParts, state: GameState): void {
-    closePopover();
+  function openPopover(card: CardParts, state: GameState, notify: boolean): void {
+    clearSelectionVisuals();
     const villager = state.villagers.find((v) => v.id === card.card.dataset.villagerId);
     if (!villager) return;
     selectedId = villager.id;
@@ -85,13 +100,26 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     // The popover is a footer below the list, so every card stays visible and clickable.
     popover.hidden = false;
     syncActiveButtons(state);
+    // External selection already told the render layer, so only panel-driven picks notify.
+    if (notify) actions.onSelect(villager.id);
+  }
+
+  /** T05: selection driven from outside the UI (3D click). Same visuals as a card click,
+   but silent — the caller has already told the render layer. */
+  function applySelection(villagerId: string | null, state: GameState): void {
+    if (villagerId === null) {
+      clearSelectionVisuals();
+      return;
+    }
+    const parts = cards.get(villagerId);
+    if (parts) openPopover(parts, state, false);
   }
 
   const onListClick = (ev: Event): void => {
     const target = ev.target instanceof Element ? ev.target.closest('.villager-card') : null;
     if (!(target instanceof HTMLElement) || !lastState) return;
     const parts = cards.get(target.dataset.villagerId ?? '');
-    if (parts) openPopover(parts, lastState);
+    if (parts) openPopover(parts, lastState, true);
   };
 
   const onPopoverClick = (ev: Event): void => {
@@ -104,9 +132,11 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   };
 
   const onDocumentClick = (ev: MouseEvent): void => {
-    if (!popover.hidden && ev.target instanceof Node) {
-      if (!popover.contains(ev.target) && !list.contains(ev.target)) closePopover();
-    }
+    if (popover.hidden || !(ev.target instanceof Node)) return;
+    // Only clicks inside the UI dismiss the popover. A world click is T05 selection-driven,
+    // and dismissing here would undo the selection main.ts just made in the same gesture.
+    if (!root.contains(ev.target)) return;
+    if (!popover.contains(ev.target) && !list.contains(ev.target)) closePopover();
   };
 
   const onKeyDown = (ev: KeyboardEvent): void => {
@@ -152,6 +182,11 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         cardsBuilt = true;
       }
       lastState = state;
+      if (pendingSelection !== undefined) {
+        const requested = pendingSelection;
+        pendingSelection = undefined;
+        applySelection(requested, state);
+      }
       for (const res of ['wood', 'berries'] as const) {
         const pill = must<HTMLElement>(root, `#hud [data-res="${res}"]`);
         const value = String(state.resources[res]);
@@ -159,6 +194,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
           pill.dataset.value = value;
           const text = must<HTMLElement>(pill, '.pill-value');
           text.textContent = value;
+        }
+        if (state.events.some((ev) => (res === 'wood' ? ev.type === 'chop' : ev.type === 'gather'))) {
+          // Yield pulse: re-adding the class restarts the animation, and transform
+          // animation cannot shift layout.
+          pill.classList.remove('yield-pulse');
+          void pill.offsetWidth; // force reflow so the same class re-triggers
+          pill.classList.add('yield-pulse');
         }
       }
       for (const villager of state.villagers) {
@@ -168,6 +210,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         if (parts.label.textContent !== label) parts.label.textContent = label;
       }
       if (selectedId) syncActiveButtons(state);
+    },
+    select(villagerId: string | null): void {
+      if (!lastState) {
+        pendingSelection = villagerId;
+        return;
+      }
+      applySelection(villagerId, lastState);
     },
     dispose(): void {
       list.removeEventListener('click', onListClick);

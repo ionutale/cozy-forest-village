@@ -9,6 +9,12 @@ export interface RenderHandle {
   render(state: GameState, dtMs: number): void;
   resize(): void;
   dispose(): void;
+  /** Screen-space hit test against villager meshes (client px). */
+  pickVillager(clientX: number, clientY: number): string | null;
+  /** Soft selection ring under a villager; null clears it. */
+  setSelected(villagerId: string | null): void;
+  /** Project a villager to screen client px (testability + UI anchoring). */
+  projectVillager(villagerId: string): { x: number; y: number } | null;
 }
 
 declare global {
@@ -79,6 +85,10 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
 
   let env: Environment | null = null;
   let villagers: VillagersLayer | null = null;
+  let selectedId: string | null = null; // kept here so the ring survives layer re-creation
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const scratch = new THREE.Vector2();
 
   function resize(): void {
     const width = canvas.clientWidth || window.innerWidth;
@@ -112,10 +122,31 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       const timeSec = performance.now() / 1000;
       env.update(timeSec);
       villagers.update(state, timeSec, dtMs);
+      villagers.setSelected(selectedId);
       controls.update();
       renderer.render(scene, camera);
     },
     resize,
+    pickVillager(clientX: number, clientY: number): string | null {
+      if (!villagers) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return villagers.pick(raycaster);
+    },
+    setSelected(villagerId: string | null): void {
+      selectedId = villagerId;
+      villagers?.setSelected(selectedId);
+    },
+    projectVillager(villagerId: string): { x: number; y: number } | null {
+      if (!villagers || !villagers.project(villagerId, camera, scratch)) return null;
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: rect.left + (scratch.x * 0.5 + 0.5) * rect.width,
+        y: rect.top + (-scratch.y * 0.5 + 0.5) * rect.height,
+      };
+    },
     dispose(): void {
       env?.dispose();
       env = null;

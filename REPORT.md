@@ -27,8 +27,8 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T2 | Pure sim core (FSM, tasks, RNG) + vitest | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 + 1 fix | tsc/build ✅ · 17/17 tests ✅ · code review ✅ | 4.5/5 |
 | T3 | Forest environment (InstancedMesh, light, fog) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser ✅ · calls 14 / tris 16.7k ✅ | 4.5/5 |
 | T4 | Villagers (primitives + hats + procedural anim) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser behavior + FPS ✅ | 4.5/5 |
-| T5 | Wiring sim ↔ render ↔ UI (full loop) | in progress | `opencode/space-bunny-free#xhigh` | — | — | — |
-| T6 | Ambient life + procedural WebAudio | queued | — | — | — | — |
+| T5 | Wiring sim ↔ render ↔ UI (full loop) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build ✅ · 19/19 ✅ · browser: select/clear/drag/pulse ✅ | 4.5/5 |
+| T6 | Ambient life + procedural WebAudio | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
 | T7 | QA/polish/anti-bloat pass | queued | — | — | — | — |
 
 ## Log
@@ -47,7 +47,25 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T2 follow-up: rest ring (commit pending)
+### 2026-10-04 — T5 complete (commit pending)
+- Model: `opencode/space-bunny-free#xhigh` · attempts: 1 + 1 fix round · score 4.5/5.
+- Evidence: `tsc`/`build`/19 tests green; code read (raycast pick, ring, click/drag threshold, pulsing);
+  orchestrator browser: select via projected villager point ✅, ground-click clears ✅, 40 px drag does
+  not select ✅, Escape clears ✅, card-click shows ring (after fix) ✅, yield pulse observed with
+  wood +1 ✅, `calls` 105–112 (<200) ✅, console clean after fresh load ✅.
+- Found by the model and fixed: a pre-existing document click handler would close the popover right
+  after `ui.select()` on canvas clicks (dismissal is now scoped to clicks inside `#ui`).
+- Fix round 1: (a) card-click selection did not light the 3D ring → `UIActions.onSelect` sync;
+  (b) ring was unreadable on the clearing disc → two-tone cream+accent ring, y-offset, opacity ~0.9.
+- Artifact note: dispatching synthetic PointerEvents produces a one-off `setPointerCapture`
+  `NotFoundError` from OrbitControls (no active pointer). Fresh load without synthetic input is
+  clean; real input carries a real pointer — classified as a test artifact, not an app bug.
+- Deferred minors (T7): `villagers.ts` 250 lines / `ui/index.ts` 235 lines (past the ~220 guideline);
+  ring color mirrors `PALETTE.fire` instead of a dedicated `accent` key.
+- Audio caveat carried to T6: synthetic events do not count as user activation, so audible output is
+  a human check at playtest; automated checks cover module hygiene and the hook.
+
+### 2026-10-04 — T2 follow-up: rest ring (commit e334d0d)
 - Model: `opencode/longcat-2.5-preview-free` (resumed T2 session) · 1 round · tests 19/19 ✅.
 - Fix: `REST_RING_RADIUS = 1.6` + deterministic golden-angle `restSpot()`; `walk()` targets the spot
   for `rest` (arrival, facing, `arrived` event unchanged; `targetNodeId` stays `campfire`).

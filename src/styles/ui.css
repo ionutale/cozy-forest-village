@@ -48,6 +48,16 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
   color: var(--berry);
 }
 
+/* Yield pulse: a whisper of feedback when wood or berries come in. Retrigger-safe — the
+   class is re-added each yield and the forced reflow in ui/index.ts restarts the animation.
+   Transform only, so nothing reflows around it. */
+.pill.yield-pulse { animation: pill-pulse 200ms ease; }
+
+@keyframes pill-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
 /* Zone 2 — villager panel */
 
 #villager-panel {
@@ -148,6 +158,7 @@ to { opacity: 1; transform: translateY(0); }
 
 #villager-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
+/* Reduced motion: everything eases to nothing, including the yield pulse. */
 @media (prefers-reduced-motion: reduce) {
   #ui,
   #ui * {

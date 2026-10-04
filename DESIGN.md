@@ -92,7 +92,12 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 
 ```ts
 import type { GameState, TaskId } from '../sim';
-export interface UIActions { assignTask(villagerId: string, task: TaskId | null): void }
+export interface UIActions {
+  assignTask(villagerId: string, task: TaskId | null): void;
+  /** T5: fires on internal selection changes (card click, dismissal) so the world ring stays in
+      sync. The external select() path does NOT fire it (that path is already the sync target). */
+  onSelect(villagerId: string | null): void;
+}
 export interface UIHandle {
   render(state: GameState): void;
   dispose(): void;

@@ -1,7 +1,7 @@
-// Villagers: primitive characters built from shared geometry (DESIGN §2 pillar 2 —
-// big head, small body, hat as the identity cue). All motion is procedural and driven
-// only by `timeSec`/`dtMs` + sim state; all smoothing state lives in this layer so the
-// sim stays pure (DESIGN §3).
+// Villagers: primitive characters from shared geometry (DESIGN §2 pillar 2 — big head, small body,
+// hat as the identity cue) plus T05 selection: every mesh is tagged so a ray hit resolves to a
+// villager id, one shared soft ring marks the selection, and `project` anchors the UI / test hook.
+// Motion is procedural; all smoothing state lives here, so the sim stays pure (DESIGN §3).
 
 import * as THREE from 'three';
 import type { GameState, Villager } from '../sim';
@@ -10,26 +10,22 @@ import { PALETTE } from './palette';
 export interface VillagersLayer {
   group: THREE.Group;
   update(state: GameState, timeSec: number, dtMs: number): void;
+  /** T05: nearest villager along a ray, the shared selection ring, and rig → NDC projection. */
+  pick(raycaster: THREE.Raycaster): string | null;
+  setSelected(villagerId: string | null): void;
+  /** Writes NDC xy into `out`; false when unknown or behind the camera. */
+  project(villagerId: string, camera: THREE.Camera, out: THREE.Vector2): boolean;
   dispose(): void;
 }
 
 const TAU = Math.PI * 2;
-const BODY_Y = 0.25; // ~0.49u tall, radius ~0.17 (small body)
-const HEAD_Y = 0.6; // radius 0.15 (big head)
-const HAT_Y = 0.81; // 0.2u cone sitting on the skull
-const POM_Y = 0.92;
-const SHOULDER_Y = 0.44;
-const ARM_X = 0.185;
-const ARM_DROP = 0.09; // capsule is 0.18u long, pivoting at the shoulder
-const TURN_RATE = 0.012; // shortest-arc turn smoothing coefficient (per ms)
-const EASE = 9; // generic per-second easing rate for bob/lean/arm transitions
-const STEP_RATE = 7.5; // rad/s of the step cycle while walking (~1.2 Hz)
-const CHOP_HZ = 2.2;
-const BERRY_HZ = 1.3;
-const BOB_IDLE = 0.015; // micro bob amplitude while idle
-const BOB_STEP = 0.03;
-const LEAN_CHOP = 0.19;
-const LEAN_BERRY = 0.1;
+const BODY_Y = 0.25; const HEAD_Y = 0.6; const HAT_Y = 0.81; const POM_Y = 0.92; // ~0.97u villager
+const SHOULDER_Y = 0.44; const ARM_X = 0.185; const ARM_DROP = 0.09; // capsule is 0.18u long
+const TURN_RATE = 0.012; const EASE = 9; // turn smoothing (per ms), channel easing (per s)
+const STEP_RATE = 7.5; const CHOP_HZ = 2.2; const BERRY_HZ = 1.3; // walk cycle, work pulses
+const BOB_IDLE = 0.015; const BOB_STEP = 0.03; const LEAN_CHOP = 0.19; const LEAN_BERRY = 0.1;
+const RING_Y = 0.015; // above the grass (y 0) and the clearing disc (y 0.01): no z-fighting
+const PICK_LIFT = 0.5; // project mid-body so the pixel lands on the character
 
 interface Rig {
   root: THREE.Group;
@@ -88,16 +84,47 @@ export function createVillagers(): VillagersLayer {
     return made;
   }
 
+  // T05: the one shared selection ring — two tones so it reads at a glance on both the grass
+  // and the tan clearing disc: a soft warm-white halo underneath, a thin accent ring on top.
+  // Rounded and translucent, never a hard UI outline (pillars 1 and 4). PALETTE.fire is the
+  // 3D mirror of --accent and PALETTE.flowerWhite the warm off-white standing in for --paper;
+  // palette.ts has no keys of its own for either.
+  const ringGroup = new THREE.Group();
+  const halo = new THREE.Mesh(
+    track(new THREE.RingGeometry(0.28, 0.37, 48)),
+    track(new THREE.MeshBasicMaterial({ color: PALETTE.flowerWhite, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide })),
+  );
+  const accent = new THREE.Mesh(
+    track(new THREE.RingGeometry(0.31, 0.345, 48)),
+    track(new THREE.MeshBasicMaterial({ color: PALETTE.fire, transparent: true, opacity: 0.92, depthWrite: false, side: THREE.DoubleSide })),
+  );
+  halo.rotation.x = accent.rotation.x = -Math.PI / 2; // flat on the ground
+  halo.renderOrder = 1;
+  accent.renderOrder = 2; // the halo can never win a transparent sort against it
+  ringGroup.add(halo, accent);
+  ringGroup.visible = false;
+  group.add(ringGroup);
+  let selectedId: string | null = null;
+  const scratch = new THREE.Vector3();
+
+  /** One arm on a shoulder pivot; `side` is -1 (left) or +1 (right). */
+  function armPivot(side: number): THREE.Group {
+    const pivot = new THREE.Group();
+    pivot.position.set(ARM_X * side, SHOULDER_Y, 0);
+    const mesh = new THREE.Mesh(armGeo, skinMat);
+    mesh.position.y = -ARM_DROP;
+    pivot.add(mesh);
+    return pivot;
+  }
+
   function createRig(villager: Villager, index: number): Rig {
     const root = new THREE.Group();
     const body = new THREE.Group();
     root.add(body);
-
     const torso = new THREE.Mesh(bodyGeo, tunicMat);
     torso.position.y = BODY_Y;
     torso.scale.set(1, 1.45, 1);
     body.add(torso);
-
     const head = new THREE.Group();
     head.position.y = HEAD_Y;
     head.add(new THREE.Mesh(headGeo, skinMat));
@@ -108,37 +135,19 @@ export function createVillagers(): VillagersLayer {
     pom.position.y = POM_Y - HEAD_Y;
     head.add(hat, pom);
     body.add(head);
-
-    const armL = new THREE.Group();
-    const armR = new THREE.Group();
-    armL.position.set(-ARM_X, SHOULDER_Y, 0);
-    armR.position.set(ARM_X, SHOULDER_Y, 0);
-    const armLMesh = new THREE.Mesh(armGeo, skinMat);
-    const armRMesh = new THREE.Mesh(armGeo, skinMat);
-    armLMesh.position.y = -ARM_DROP;
-    armRMesh.position.y = -ARM_DROP;
-    armL.add(armLMesh);
-    armR.add(armRMesh);
+    const armL = armPivot(-1);
+    const armR = armPivot(1);
     body.add(armL, armR);
-
+    // T05: tag every mesh so a raycast hit resolves back to the villager it belongs to.
     root.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) obj.castShadow = true;
+      if (!(obj instanceof THREE.Mesh)) return;
+      obj.castShadow = true;
+      obj.userData.villagerId = villager.id;
     });
     root.position.set(villager.pos.x, 0, villager.pos.z);
     root.rotation.y = villager.facing;
     group.add(root);
-
-    return {
-      root,
-      body,
-      armL,
-      armR,
-      facing: villager.facing,
-      phase: hash01(index, 71) * TAU,
-      bob: 0,
-      lean: 0,
-      swing: 0,
-    };
+    return { root, body, armL, armR, facing: villager.facing, phase: hash01(index, 71) * TAU, bob: 0, lean: 0, swing: 0 };
   }
 
   /** Target pose per sim state; everything is then eased toward, so nothing snaps. */
@@ -169,7 +178,6 @@ export function createVillagers(): VillagersLayer {
     rig.root.rotation.y = rig.facing;
     rig.root.position.x = villager.pos.x;
     rig.root.position.z = villager.pos.z;
-
     const target = pose(villager, rig, timeSec);
     const k = 1 - Math.exp(-dtSec * EASE);
     rig.bob += (target.bob - rig.bob) * k;
@@ -194,11 +202,43 @@ export function createVillagers(): VillagersLayer {
         animate(rig, villager, timeSec, dtSec);
       });
       const live = new Set(state.villagers.map((v) => v.id));
-      rigs.forEach((rig, id) => {
-        if (live.has(id)) return;
-        group.remove(rig.root);
-        rigs.delete(id);
-      });
+      for (const [id, rig] of rigs) {
+        if (!live.has(id)) {
+          group.remove(rig.root);
+          rigs.delete(id);
+        }
+      }
+      // The ring trails the selected rig every frame, hidden when nothing is selected (including
+      // when the selected id has no rig). Its cosine breath runs 1.0 → 1.08 → 1.0 over 1.2 s,
+      // easing at both ends so it never snaps.
+      const picked = selectedId === null ? undefined : rigs.get(selectedId);
+      ringGroup.visible = picked !== undefined;
+      if (picked) {
+        ringGroup.position.set(picked.root.position.x, RING_Y, picked.root.position.z);
+        ringGroup.scale.setScalar(1 + (1 - Math.cos((timeSec * TAU) / 1.2)) * 0.04);
+      }
+    },
+    pick(raycaster: THREE.Raycaster): string | null {
+      // Nearest tagged mesh wins. The ring is untagged, so a hit on it is just skipped.
+      for (const hit of raycaster.intersectObjects(group.children, true)) {
+        const id: unknown = hit.object.userData.villagerId;
+        if (typeof id === 'string') return id;
+      }
+      return null;
+    },
+    setSelected(villagerId: string | null): void {
+      selectedId = villagerId; // applied by the next update(), once a rig exists
+    },
+    project(villagerId: string, camera: THREE.Camera, out: THREE.Vector2): boolean {
+      const rig = rigs.get(villagerId);
+      if (!rig) return false;
+      rig.root.getWorldPosition(scratch);
+      scratch.y += PICK_LIFT;
+      scratch.project(camera);
+      // z > 1 means the rig is behind the camera, where the xy projection is meaningless.
+      if (scratch.z > 1) return false;
+      out.set(scratch.x, scratch.y);
+      return true;
     },
     dispose(): void {
       disposables.forEach((d) => d.dispose());
