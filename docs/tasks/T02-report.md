@@ -124,3 +124,33 @@ Tests updated/added:
 
 Re-verified: `pnpm exec tsc --noEmit` clean, `pnpm build` ✓, `pnpm test` →
 17/17 passing (3 files).
+
+## Round 2 — live-playtest field bug (fixed)
+
+**Bug: resting villagers stood inside the campfire ring.** The campfire node sits
+at the ring centre and `ARRIVAL_DISTANCE` (0.45) is smaller than the ring radius
+(0.92), so villagers parked ~0.43 from the fire, visually overlapping the flame.
+
+Fix (DESIGN §3.1 updated to match):
+- `src/sim/tasks.ts`: added `REST_RING_RADIUS = 1.6` alongside the other binding
+  constants, plus `restSpot(campfirePos, villagerIndex)` — the rest target point
+  = campfire position + `(cos a, sin a) × 1.6` with
+  `a = villagerIndex × 2.399963` (golden angle). Deterministic; spreads the 8
+  villagers evenly around the fire.
+- `src/sim/index.ts`: `tick` now iterates with the villager's index and passes
+  it to `walk`; `walk` moves toward / arrives at (≤ `ARRIVAL_DISTANCE`) the
+  ring spot when `task === 'rest'`, all non-rest behavior unchanged.
+  `targetNodeId` stays `'campfire'`; `facing` points toward the spot; the
+  `arrived` event still fires on arrival.
+
+Tests:
+- `rest ring > settles on the ring around the campfire, not inside it` — after a
+  rest assignment and enough ticks: state `resting`, `targetNodeId` still
+  `'campfire'`, distance from the campfire ∈ [1.15, 2.05] (|d − 1.6| ≤ 0.45).
+- `rest ring > spreads multiple villagers around the fire` — two villagers on
+  rest settle pairwise > 1.0 apart.
+- `facing` test updated: expected facing now computed against `restSpot`
+  (index 0) instead of the campfire origin.
+
+Re-verified: `pnpm exec tsc --noEmit` clean, `pnpm build` ✓, `pnpm test` →
+19/19 passing (3 files).

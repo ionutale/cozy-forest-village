@@ -23,6 +23,7 @@ import {
   TASK_KIND,
   WORK_PERIOD_MS,
   nearestNode,
+  restSpot,
 } from './tasks';
 
 export function createInitialState(seed = 1): GameState {
@@ -56,10 +57,11 @@ export function tick(state: GameState, dtMs: number): void {
   state.tick += 1;
   state.events = [];
   if (!(dtMs > 0)) return; // dtMs = 0 (or NaN): counters advance, nothing else
-  for (const villager of state.villagers) {
+  for (let i = 0; i < state.villagers.length; i += 1) {
+    const villager = state.villagers[i]!;
     switch (villager.state) {
       case 'walking':
-        walk(state, villager, dtMs);
+        walk(state, villager, i, dtMs);
         break;
       case 'working':
         work(state, villager, dtMs);
@@ -73,7 +75,7 @@ export function tick(state: GameState, dtMs: number): void {
   }
 }
 
-function walk(state: GameState, villager: Villager, dtMs: number): void {
+function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
   const node = state.nodes.find((n) => n.id === villager.targetNodeId);
   if (!node) {
     // Defensive: a missing target must never wedge the FSM.
@@ -82,8 +84,10 @@ function walk(state: GameState, villager: Villager, dtMs: number): void {
     villager.targetNodeId = null;
     return;
   }
-  const dx = node.pos.x - villager.pos.x;
-  const dz = node.pos.z - villager.pos.z;
+  // Resting villagers settle on a ring around the campfire, not inside it.
+  const target = villager.task === 'rest' ? restSpot(node.pos, villagerIndex) : node.pos;
+  const dx = target.x - villager.pos.x;
+  const dz = target.z - villager.pos.z;
   const dist = Math.hypot(dx, dz);
   villager.facing = Math.atan2(dx, dz);
   const move = Math.min((MOVE_SPEED * dtMs) / 1000, dist);

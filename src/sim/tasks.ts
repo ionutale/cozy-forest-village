@@ -11,6 +11,10 @@ export const ARRIVAL_DISTANCE = 0.45;
 export const WORK_PERIOD_MS = 1400;
 /** Rest lasts 4000 ms, then the villager becomes idle. */
 export const REST_DURATION_MS = 4000;
+/** Resting villagers settle on a ring around the campfire, not inside it. */
+export const REST_RING_RADIUS = 1.6;
+/** Golden angle in radians — spreads rest spots evenly and deterministically. */
+const GOLDEN_ANGLE = 2.399963;
 
 export const TASK_KIND: Record<TaskId, ResourceNode['kind']> = {
   chop: 'tree',
@@ -40,4 +44,17 @@ export function nearestNode(
     }
   }
   return best;
+}
+
+/**
+ * Deterministic rest target for a villager: a point on the rest ring around
+ * the campfire, at angle = villagerIndex × golden angle. Keeps villagers from
+ * standing inside the fire while spreading them evenly around it.
+ */
+export function restSpot(campfirePos: Vec2, villagerIndex: number): Vec2 {
+  const a = villagerIndex * GOLDEN_ANGLE;
+  return {
+    x: campfirePos.x + Math.cos(a) * REST_RING_RADIUS,
+    z: campfirePos.z + Math.sin(a) * REST_RING_RADIUS,
+  };
 }

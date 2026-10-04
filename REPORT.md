@@ -27,7 +27,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T2 | Pure sim core (FSM, tasks, RNG) + vitest | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 + 1 fix | tsc/build ✅ · 17/17 tests ✅ · code review ✅ | 4.5/5 |
 | T3 | Forest environment (InstancedMesh, light, fog) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser ✅ · calls 14 / tris 16.7k ✅ | 4.5/5 |
 | T4 | Villagers (primitives + hats + procedural anim) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser behavior + FPS ✅ | 4.5/5 |
-| T5 | Wiring sim ↔ render ↔ UI (full loop) | queued | — | — | — | — |
+| T5 | Wiring sim ↔ render ↔ UI (full loop) | in progress | `opencode/space-bunny-free#xhigh` | — | — | — |
 | T6 | Ambient life + procedural WebAudio | queued | — | — | — | — |
 | T7 | QA/polish/anti-bloat pass | queued | — | — | — | — |
 
@@ -47,7 +47,15 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T4 complete (commit pending)
+### 2026-10-04 — T2 follow-up: rest ring (commit pending)
+- Model: `opencode/longcat-2.5-preview-free` (resumed T2 session) · 1 round · tests 19/19 ✅.
+- Fix: `REST_RING_RADIUS = 1.6` + deterministic golden-angle `restSpot()`; `walk()` targets the spot
+  for `rest` (arrival, facing, `arrived` event unchanged; `targetNodeId` stays `campfire`).
+- Orchestrator browser check: two resters settle at 1.95 / 1.56 from the fire (ring radius 0.92) —
+  outside the flames; screenshot `docs/validation/T02-restfix.png`. DESIGN §3.1 updated.
+- Follow-up note: separation is covered by unit test (two spots pairwise > 1.0 apart).
+
+### 2026-10-04 — T4 complete (commit 307df70)
 - Model: `opencode/space-bunny-free#xhigh` · attempts: 1 (no fix round; two concerns ruled on) · 4.5/5.
 - Evidence: `tsc`/`build`/17 tests green; code read (rigs, shared geoms, eased posing, shortest-arc turns);
   orchestrator browser run: chop → walk 8.2u → working; berries → 6.43u → working; rest → resting at

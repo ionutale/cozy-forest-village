@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState } from './index';
 import { assignTask, createInitialState, tick } from './index';
+import { restSpot } from './tasks';
 
 /** Ticks the sim forward in fixed steps. */
 function run(state: GameState, totalMs: number, stepMs: number): void {
@@ -38,7 +39,35 @@ describe('facing', () => {
     assignTask(state, v.id, 'rest'); // campfire sits at the origin
     const before = { ...v.pos };
     tick(state, 100);
-    expect(v.facing).toBeCloseTo(Math.atan2(0 - before.x, 0 - before.z), 12);
+    const spot = restSpot({ x: 0, z: 0 }, 0); // v1 is villagers[0]
+    expect(v.facing).toBeCloseTo(Math.atan2(spot.x - before.x, spot.z - before.z), 12);
+  });
+});
+
+describe('rest ring', () => {
+  it('settles on the ring around the campfire, not inside it', () => {
+    const state = createInitialState();
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'rest');
+    runUntil(state, () => v.state === 'resting', 10_000, 100);
+    expect(v.state).toBe('resting');
+    expect(v.targetNodeId).toBe('campfire');
+    const d = Math.hypot(v.pos.x, v.pos.z); // campfire is at the origin
+    expect(d).toBeGreaterThanOrEqual(1.15);
+    expect(d).toBeLessThanOrEqual(2.05);
+  });
+
+  it('spreads multiple villagers around the fire', () => {
+    const state = createInitialState();
+    const a = state.villagers[0]!;
+    const b = state.villagers[1]!;
+    assignTask(state, a.id, 'rest');
+    assignTask(state, b.id, 'rest');
+    runUntil(state, () => a.state === 'resting' && b.state === 'resting', 10_000, 100);
+    expect(a.state).toBe('resting');
+    expect(b.state).toBe('resting');
+    const d = Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z);
+    expect(d).toBeGreaterThan(1.0);
   });
 });
 

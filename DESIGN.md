@@ -74,7 +74,17 @@ export function tick(state: GameState, dtMs: number): void;
 
 ```ts
 import type { GameState } from '../sim';
-export interface RenderHandle { render(state: GameState, dtMs: number): void; resize(): void; dispose(): void }
+export interface RenderHandle {
+  render(state: GameState, dtMs: number): void;
+  resize(): void;
+  dispose(): void;
+  /** T5: screen-space hit test against villager meshes (client px). */
+  pickVillager(clientX: number, clientY: number): string | null;
+  /** T5: visual selection highlight (soft ring under the villager). */
+  setSelected(villagerId: string | null): void;
+  /** T5: project a villager to screen client px (testability + UI anchoring). */
+  projectVillager(villagerId: string): { x: number; y: number } | null;
+}
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
 
@@ -83,7 +93,12 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```ts
 import type { GameState, TaskId } from '../sim';
 export interface UIActions { assignTask(villagerId: string, task: TaskId | null): void }
-export interface UIHandle { render(state: GameState): void; dispose(): void }
+export interface UIHandle {
+  render(state: GameState): void;
+  dispose(): void;
+  /** T5: external selection (e.g. clicking a villager in the 3D scene). */
+  select(villagerId: string | null): void;
+}
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
 
@@ -114,7 +129,7 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 
 ### Testability hook (all layers)
 
-`main.ts` exposes `globalThis.__cozy = { getState: () => state }` for automated validation.
+`main.ts` exposes `globalThis.__cozy = { getState: () => state, projectVillager: (id) => render.projectVillager(id) }` for automated validation.
 The render layer additionally exposes `globalThis.__cozyRender = { info: () => ({ calls, triangles,
 geometries, textures }) }` from `initRender` for performance checks.
 
@@ -152,7 +167,7 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 |---|---|
 | `src/sim/**`, `src/sim/*.test.ts` | T2 |
 | `src/render/environment.ts`, `src/render/palette.ts` | T3 |
-| `src/render/villagers.ts` | T4 |
+| `src/render/villagers.ts` | T4 creates; T5 edits (selection) |
 | `src/render/index.ts`, `src/main.ts` | T1 creates; T3 edits render/index.ts; T5 modifies |
 | `src/ui/**`, `src/styles/**` | T1 creates; T5 refines |
 | `src/render/ambient.ts`, `src/audio/**` | T6 |
