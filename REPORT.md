@@ -25,7 +25,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 |---|---|---|---|---|---|---|
 | T1 | Scaffold + cozy UI shell + base scene | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build/test ✅ · browser ✅ · console clean ✅ · cozy ✅ | 4.5/5 |
 | T2 | Pure sim core (FSM, tasks, RNG) + vitest | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 + 1 fix | tsc/build ✅ · 17/17 tests ✅ · code review ✅ | 4.5/5 |
-| T3 | Forest environment (InstancedMesh, light, fog) | queued | — | — | — | — |
+| T3 | Forest environment (InstancedMesh, light, fog) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser ✅ · calls 14 / tris 16.7k ✅ | 4.5/5 |
 | T4 | Villagers (primitives + hats + procedural anim) | queued | — | — | — | — |
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | queued | — | — | — | — |
 | T6 | Ambient life + procedural WebAudio | queued | — | — | — | — |
@@ -47,7 +47,18 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T2 complete (commit pending)
+### 2026-10-04 — T3 complete (commit pending)
+- Model: `opencode/muse-spark-1.3-contributor-free#xhigh` · attempts: 1 (no fix round) · score 4.5/5.
+- Evidence: `tsc`/`build`/17 tests green; code read against brief — 6 instanced meshes (trunks, crowns,
+  bushes, rocks, 420 tufts, 60 flowers), deterministic `hash01` variation, T1 placeholder fully removed.
+- Browser (orchestrator, isolated tab port 5188): console clean; `__cozyRender.info()` = calls 14,
+  triangles 16,720, geometries 10, textures 2 (budget: <80 / <400k / <30) ✅; screenshots
+  `docs/validation/T03-default.png`, `T03-wide.png` — fuller forest, clearing disc, distinct rocks/tufts.
+- Notes: model reported no browser in sandbox (expected — live checks are the orchestrator's job).
+- Deferred minor (T7): clearing-disc color `#ece0c3` is hardcoded in `environment.ts` instead of a
+  `palette.ts` key.
+
+### 2026-10-04 — T2 complete (commit 1e6e56d)
 - Model attempts in order: `opencode/fledge-alpha-free#max` → instant provider rejection
   ("This model is not available in your country"), no work done, free; then
   `opencode/longcat-2.5-preview-free` → DONE. Attempts: 1 (+1 fix round). Score 4.5/5.

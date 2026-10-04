@@ -9,5 +9,10 @@ export const PALETTE = {
   sun: '#ffe3b3',
   ambientSky: '#cfe0ea',
   ambientGround: '#7fa653',
+  rock: '#a49b8a',
+  tuftA: '#86b25f',
+  tuftB: '#79a555',
+  flowerWhite: '#f4efe2',
+  flowerPink: '#d9a3b8',
   fire: '#e08a3c',
 } as const;
