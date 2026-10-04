@@ -86,9 +86,8 @@ export function createVillagers(): VillagersLayer {
 
   // T05: the one shared selection ring — two tones so it reads at a glance on both the grass
   // and the tan clearing disc: a soft warm-white halo underneath, a thin accent ring on top.
-  // Rounded and translucent, never a hard UI outline (pillars 1 and 4). PALETTE.fire is the
-  // 3D mirror of --accent and PALETTE.flowerWhite the warm off-white standing in for --paper;
-  // palette.ts has no keys of its own for either.
+  // Rounded and translucent, never a hard UI outline (pillars 1 and 4). PALETTE.accent is the
+  // 3D mirror of --accent and PALETTE.flowerWhite the warm off-white standing in for --paper.
   const ringGroup = new THREE.Group();
   const halo = new THREE.Mesh(
     track(new THREE.RingGeometry(0.28, 0.37, 48)),
@@ -96,7 +95,7 @@ export function createVillagers(): VillagersLayer {
   );
   const accent = new THREE.Mesh(
     track(new THREE.RingGeometry(0.31, 0.345, 48)),
-    track(new THREE.MeshBasicMaterial({ color: PALETTE.fire, transparent: true, opacity: 0.92, depthWrite: false, side: THREE.DoubleSide })),
+    track(new THREE.MeshBasicMaterial({ color: PALETTE.accent, transparent: true, opacity: 0.92, depthWrite: false, side: THREE.DoubleSide })),
   );
   halo.rotation.x = accent.rotation.x = -Math.PI / 2; // flat on the ground
   halo.renderOrder = 1;

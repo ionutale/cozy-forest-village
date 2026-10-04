@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { GameState } from '../sim';
 import { PALETTE } from './palette';
 import { createEnvironment, type Environment } from './environment';
+import { createAmbient, type AmbientLayer } from './ambient';
 import { createVillagers, type VillagersLayer } from './villagers';
 
 export interface RenderHandle {
@@ -85,6 +86,7 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
 
   let env: Environment | null = null;
   let villagers: VillagersLayer | null = null;
+  let ambientLayer: AmbientLayer | null = null;
   let selectedId: string | null = null; // kept here so the ring survives layer re-creation
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -119,9 +121,14 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
         villagers = createVillagers();
         scene.add(villagers.group);
       }
+      if (!ambientLayer) {
+        ambientLayer = createAmbient();
+        scene.add(ambientLayer.group);
+      }
       const timeSec = performance.now() / 1000;
       env.update(timeSec);
       villagers.update(state, timeSec, dtMs);
+      ambientLayer.update(state, timeSec, dtMs);
       villagers.setSelected(selectedId);
       controls.update();
       renderer.render(scene, camera);
@@ -152,6 +159,8 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       env = null;
       villagers?.dispose();
       villagers = null;
+      ambientLayer?.dispose();
+      ambientLayer = null;
       controls.dispose();
       disposeScene(scene);
       renderer.dispose();

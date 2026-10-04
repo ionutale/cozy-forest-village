@@ -28,7 +28,8 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T3 | Forest environment (InstancedMesh, light, fog) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser ✅ · calls 14 / tris 16.7k ✅ | 4.5/5 |
 | T4 | Villagers (primitives + hats + procedural anim) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser behavior + FPS ✅ | 4.5/5 |
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build ✅ · 19/19 ✅ · browser: select/clear/drag/pulse ✅ | 4.5/5 |
-| T6 | Ambient life + procedural WebAudio | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
+| T6 | Ambient life + procedural WebAudio | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 19/19 ✅ · browser: motion ✅ · calls 117 ✅ · console clean ✅ | 4.5/5 |
+| T7 | QA/polish/anti-bloat pass + final review | in progress | `opencode/mimo-v2.6-flash-free` | — | — | — |
 | T7 | QA/polish/anti-bloat pass | queued | — | — | — | — |
 
 ## Log
@@ -47,7 +48,22 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T5 complete (commit pending)
+### 2026-10-04 — T6 complete (commit pending)
+- Models: `opencode/longcat-2.5-preview-free` → provider rejection "Rate limit exceeded" (no work done);
+  `opencode/muse-spark-1.3-contributor-free#xhigh` → DONE, 1 attempt, 0 fix rounds · 4.5/5.
+- Evidence: `tsc`/`build`/19 tests green; code read — ambient = 7 draws (birds 3, butterflies 3, motes 1),
+  deterministic hash phases; crown sway ≤ 0.03 rad; audio is lazy on first real gesture, seeded PRNG,
+  master 0.12, silent-failure init, `__cozyAudio` hook. Browser: console clean, `calls 117`,
+  `triangles 29.1k`, ~60 fps (tab throttle suspected vs 8.3 ms earlier), audio `state 'none' /
+  started false` pre-gesture; two screenshots 3.2 s apart show a bird translating across the frame
+  and motes drifting (subtle, not snow). Evidence `docs/validation/T06-t0.png`, `T06-t1.png`.
+- Ruling: longcat rate-limit was transient (not overall free-quota exhaustion) → continue on remaining
+  free models; revisit paid models only if the whole roster blocks. Cost if wrong: one slower dispatch.
+- Notes: butterflies wander centred within r≈7.6 (brief said r=2…14) — accepted, keeps them in the
+  meadow; `environment.ts` sits exactly at 220 lines — watch it in future edits.
+- Human check pending: audible output on a real gesture (synthetic events are not user activation).
+
+### 2026-10-04 — T5 complete (commit f456266)
 - Model: `opencode/space-bunny-free#xhigh` · attempts: 1 + 1 fix round · score 4.5/5.
 - Evidence: `tsc`/`build`/19 tests green; code read (raycast pick, ring, click/drag threshold, pulsing);
   orchestrator browser: select via projected villager point ✅, ground-click clears ✅, 40 px drag does

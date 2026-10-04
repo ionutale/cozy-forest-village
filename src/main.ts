@@ -3,6 +3,7 @@ import './styles/ui.css';
 import type { GameState } from './sim';
 import { assignTask, createInitialState, tick } from './sim';
 import { initRender } from './render';
+import { initAudio } from './audio';
 import { initUI } from './ui';
 
 declare global {
@@ -23,6 +24,7 @@ if (!(canvas instanceof HTMLCanvasElement) || !(uiRoot instanceof HTMLElement)) 
 
 const state = createInitialState();
 const render = initRender(canvas);
+const audio = initAudio();
 const ui = initUI(uiRoot, {
   // UI only asks the sim to reassign; the next frame's render picks up the new state.
   assignTask: (villagerId, task) => assignTask(state, villagerId, task),
@@ -67,6 +69,7 @@ function frame(now: number): void {
   last = now;
   tick(state, dt);
   render.render(state, dt);
+  audio.update(state, dt);
   ui.render(state);
   requestAnimationFrame(frame);
 }

@@ -47,6 +47,8 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
   const crownGeo = track(new THREE.ConeGeometry(1.15, 2.7, 8));
   const crownMat = track(new THREE.MeshLambertMaterial({ color: '#ffffff' }));
   const crowns = new THREE.InstancedMesh(crownGeo, crownMat, Math.max(trees.length, 1));
+  // T6 breeze: per-crown sway state (base pose + slow 0.6–1.0 Hz phase); trunks stay put.
+  const crownBase: Array<{ x: number; y: number; z: number; rot: number; s: number; phase: number; freq: number }> = [];
   trunks.castShadow = true;
   crowns.castShadow = true;
   colorA.set(PALETTE.trunk);
@@ -67,6 +69,10 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
     dummy.scale.setScalar(cs);
     dummy.updateMatrix();
     crowns.setMatrixAt(i, dummy.matrix);
+    crownBase.push({
+      x: node.pos.x, y: TRUNK_H * s + 1.15 * cs, z: node.pos.z, rot: rot + 0.6, s: cs,
+      phase: hash01(i, 23) * TAU, freq: 0.6 + hash01(i, 24) * 0.4,
+    });
   });
   colorA.set(PALETTE.foliageA);
   colorB.set(PALETTE.foliageB);
@@ -189,8 +195,19 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
 
   return {
     group,
-    update(_timeSec: number): void {
-      // No-op hook in T3; T6 drives sway/ambient through this signature.
+    update(timeSec: number): void {
+      // T6 breeze: crowns tilt ≤ 0.03 rad around their base; trunks stay put. 40 crowns: trivial.
+      for (let i = 0; i < crownBase.length; i += 1) {
+        const c = crownBase[i]!; // guarded by the loop bound (same idiom as sim/index.ts)
+        const tilt = Math.sin(timeSec * TAU * c.freq + c.phase) * 0.03;
+        const tilt2 = Math.cos(timeSec * TAU * c.freq * 0.83 + c.phase * 1.7) * 0.03;
+        dummy.position.set(c.x, c.y, c.z);
+        dummy.rotation.set(tilt, c.rot, tilt2);
+        dummy.scale.setScalar(c.s);
+        dummy.updateMatrix();
+        crowns.setMatrixAt(i, dummy.matrix);
+      }
+      if (crownBase.length > 0) crowns.instanceMatrix.needsUpdate = true;
     },
     dispose(): void {
       group.traverse((obj) => {
