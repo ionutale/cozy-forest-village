@@ -7,17 +7,23 @@ export type {
   TaskId, Vec2, Villager, VillagerState,
 } from './types';
 
-import type { GameState, TaskId, Vec2, Villager } from './types';
+import type { GameState, StructureKind, TaskId, Vec2, Villager } from './types';
 import { mulberry32 } from './rng';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
 import {
   ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
-  FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS, GARDEN_PERIOD_MS,
-  LOG_FUEL, MOVE_SPEED, STRUCTURE_COST, STRUCTURE_RING, STRUCTURE_RING_RADIUS,
-  TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE, WORK_PERIOD_MS, nearestNode,
-  nearestStructure, restDuration, restSpot, workSpot,
+  FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
+  GARDEN_PERIOD_MS, LOG_FUEL, MOVE_SPEED, STRUCTURE_ARRIVAL_DISTANCE,
+  STRUCTURE_COST as STRUCTURE_COST_TABLE,
+  STRUCTURE_RING, STRUCTURE_RING_RADIUS, TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE,
+  WORK_PERIOD_MS, nearestNode, nearestStructure, restDuration, restSpot, structureSpot,
+  workSpot,
 } from './tasks';
+
+/** Build costs (DESIGN.md §3.2) — the read-only source of truth other layers import. */
+export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berries: number }>> =
+  STRUCTURE_COST_TABLE;
 
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
@@ -56,12 +62,19 @@ export function createInitialState(seed = 1): GameState {
     pot: { meals: 0 },
     gardenMs: 0,
     events: [],
+    pendingEvents: [],
   };
 }
 
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void {
   const villager = state.villagers.find((v) => v.id === villagerId);
   if (!villager) return; // unknown id: no-op
+  // A carried log settles first: reassigning a keeper away from tend refunds
+  // the log to the stockpile (no stranded logs, no permanent carry pose).
+  if (villager.carrying && task !== 'tend') {
+    villager.carrying = false;
+    state.resources.wood += 1;
+  }
   if (task === null) {
     if (villager.task === null && villager.state === 'idle') return; // no-op
     villager.task = null;
@@ -113,13 +126,16 @@ export function buildStructure(state: GameState, structureId: string): boolean {
   state.resources.wood -= cost.wood;
   state.resources.berries -= cost.berries;
   s.built = true;
-  state.events.push({ type: 'built', structureId: s.id });
+  state.pendingEvents.push({ type: 'built', structureId: s.id });
   return true;
 }
 
 export function tick(state: GameState, dtMs: number): void {
   state.tick += 1;
-  state.events = [];
+  // Out-of-tick producers (e.g. buildStructure) queue into pendingEvents; the
+  // next tick seeds events from the queue and empties it — consumers miss nothing.
+  state.events = state.pendingEvents.slice();
+  state.pendingEvents.length = 0;
   if (!Number.isFinite(dtMs)) dtMs = 0; // NaN / ±Infinity: counters advance, nothing else
   if (!(dtMs > 0)) return; // dtMs = 0 (or was non-finite): no simulation movement
   // Fire decay (DESIGN.md §3.2): 0.22/s, floor 0 — embers, never a failure state.
@@ -188,13 +204,15 @@ function tendKeeper(state: GameState, villager: Villager, villagerIndex: number)
     villager.targetNodeId = null;
     return;
   }
-  // Fire-side legs settle at the villager's ring spot — the same point walk()
-  // steers to — so measure arrival there, not at the fire centre. Otherwise a
-  // keeper standing at its spot (1.6 from the centre) would be forced back to
-  // 'walking' every tick and re-emit 'arrived' forever.
-  const arrival = targetId === CAMPFIRE_ID ? restSpot(pos, villagerIndex) : pos;
+  // Legs settle at the same points walk() steers to — the ring spot for fire
+  // legs, the structure slot for the woodpile — so measure arrival there, not
+  // at the raw target. Otherwise a settled keeper would be forced back to
+  // 'walking' every tick and re-emit 'arrived' forever (or stall at the pile
+  // without ever taking the log).
+  const arrival = targetId === CAMPFIRE_ID ? restSpot(pos, villagerIndex) : structureSpot(pos, villagerIndex);
   const dist = Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z);
-  if (dist > ARRIVAL_DISTANCE) {
+  const tol = targetId === CAMPFIRE_ID ? ARRIVAL_DISTANCE : STRUCTURE_ARRIVAL_DISTANCE;
+  if (dist > tol) {
     villager.state = 'walking';
   } else if (villager.state !== 'working') {
     villager.state = 'working';
@@ -205,6 +223,8 @@ function tendKeeper(state: GameState, villager: Villager, villagerIndex: number)
 /** Rest approach arc (DESIGN.md §3.1): swing around the fire, never through it. */
 const REST_ARC_RADIUS = 2.2;
 const REST_ARC_MAX_DANG = 0.25;
+/** Any walking leg whose straight chord passes within 1.1 of the fire bends via the arc. */
+const FIRE_AVOID_RADIUS = 1.1;
 
 /** Shortest signed angular difference from `from` to `to`, in (−π, π]. */
 function signedAngDiff(from: number, to: number): number {
@@ -213,6 +233,16 @@ function signedAngDiff(from: number, to: number): number {
   if (d > Math.PI) d -= tau;
   if (d < -Math.PI) d += tau;
   return d;
+}
+
+/** Shortest distance from `point` to the segment `from → to` (0 when degenerate). */
+function segmentDistance(point: Vec2, from: Vec2, to: Vec2): number {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const lenSq = dx * dx + dz * dz;
+  if (lenSq === 0) return Math.hypot(point.x - from.x, point.z - from.z);
+  const t = Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.z - from.z) * dz) / lenSq));
+  return Math.hypot(from.x + dx * t - point.x, from.z + dz * t - point.z);
 }
 
 function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
@@ -225,9 +255,11 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     return;
   }
   // `arrival` completes the walk; `target` is this tick's steering point (they
-  // differ only on the rest approach arc).
+  // differ only on the rest approach arc). `arrivedTol` is the arrival radius:
+  // 0.45 everywhere except structure slots (0.02 — settlers land on the slot).
   let arrival: Vec2;
   let target: Vec2;
+  let arrivedTol = ARRIVAL_DISTANCE;
   if (villager.targetNodeId === CAMPFIRE_ID) {
     // Any destination at the campfire — rest AND the tend keeper's deposit and
     // stand-watch legs — settles on the villager's ring spot around the fire:
@@ -254,9 +286,25 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     arrival = workSpot(center, villagerIndex);
     target = arrival;
   } else {
-    // cook (and any future non-campfire task): straight to the target position.
-    arrival = center;
+    // Structure targets (pot, woodpile): the per-villager golden-angle slot on
+    // the wider structure ring (r = 0.9), with a tight 0.02 arrival tolerance
+    // so cooks and keepers settle essentially on their slots, side by side.
+    const structure = state.structures.find((s) => s.id === villager.targetNodeId);
+    arrival = structure ? structureSpot(center, villagerIndex) : center;
     target = arrival;
+    if (structure) arrivedTol = STRUCTURE_ARRIVAL_DISTANCE;
+  }
+  // Universal flame-avoiding arc (DESIGN.md §3.2): any non-campfire leg whose
+  // straight chord passes within 1.1 of the campfire bends via the bisector
+  // point on the r = 2.2 ring first. Recomputed every tick, no extra state.
+  if (villager.targetNodeId !== CAMPFIRE_ID) {
+    const fire = resolveTargetPos(state, CAMPFIRE_ID);
+    if (fire && segmentDistance(fire, villager.pos, target) < FIRE_AVOID_RADIUS) {
+      const angCur = Math.atan2(villager.pos.z - fire.z, villager.pos.x - fire.x);
+      const angGoal = Math.atan2(target.z - fire.z, target.x - fire.x);
+      const a = angCur + signedAngDiff(angCur, angGoal) / 2;
+      target = { x: fire.x + Math.cos(a) * REST_ARC_RADIUS, z: fire.z + Math.sin(a) * REST_ARC_RADIUS };
+    }
   }
   const dx = target.x - villager.pos.x;
   const dz = target.z - villager.pos.z;
@@ -267,11 +315,12 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     villager.pos.x += (dx / dist) * move;
     villager.pos.z += (dz / dist) * move;
   }
-  if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= ARRIVAL_DISTANCE) {
+  if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= arrivedTol) {
     if (villager.task === 'rest') {
-      // Eat on arrival if the fire is warm and meals are available (DESIGN.md §3.2):
-      // consume 1 meal, rest 5500 ms, become well-fed. Otherwise rest by fire state.
-      if (state.fire.fuel >= FIRE_STEADY && state.pot.meals > 0) {
+      // Eat on arrival when the fire is warm, meals are available, and the
+      // belly isn't already full (DESIGN.md §3.2): consume 1 meal, rest
+      // 5500 ms, become well-fed. Otherwise rest by fire state, untouched.
+      if (state.fire.fuel >= FIRE_STEADY && state.pot.meals > 0 && villager.fedMs < FED_FULL_BELLY_MS) {
         state.pot.meals -= 1;
         villager.fedMs = FED_MS;
         villager.restMs = EAT_REST_MS;
@@ -302,16 +351,17 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
 function work(state: GameState, villager: Villager, dtMs: number): void {
   if (villager.task === 'cook') {
     // Cook (DESIGN.md §3.2): channel 3000 ms per meal; costs 3 berries + 1 wood.
-    // Loop while ingredients last; when they run out → idle, task cleared.
-    if (state.resources.berries < COOK_BERRIES || state.resources.wood < COOK_WOOD) {
-      villager.state = 'idle';
-      villager.task = null;
-      villager.targetNodeId = null;
-      villager.progressMs = 0;
-      return;
-    }
+    // Affordability is re-checked before every deduction, so a large dt can
+    // never drive the ledger negative; when dry → idle, task cleared.
     villager.progressMs += dtMs;
     while (villager.progressMs >= COOK_CHANNEL_MS) {
+      if (state.resources.berries < COOK_BERRIES || state.resources.wood < COOK_WOOD) {
+        villager.state = 'idle';
+        villager.task = null;
+        villager.targetNodeId = null;
+        villager.progressMs = 0;
+        return;
+      }
       villager.progressMs -= COOK_CHANNEL_MS;
       state.resources.berries -= COOK_BERRIES;
       state.resources.wood -= COOK_WOOD;

@@ -76,10 +76,12 @@ export interface GameState {
   pot: Pot;
   gardenMs: number;          // accumulator for the built garden's +1 berry / 30000 ms
   events: SimEvent[];        // events from the latest tick; cleared at the start of each tick
+  pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
 export function buildStructure(state: GameState, structureId: string): boolean;
+export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berries: number }>>;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -128,8 +130,9 @@ export interface UIHandle {
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
 
-Contract rules: other layers import **types** from `../sim` and **nothing else** from it. Internal
-sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementation detail.
+Contract rules: other layers import **types** and the read-only `STRUCTURE_COST` data table from
+`../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
+`world.ts`) are implementation detail.
 
 ### 3.1 Simulation rules (slice 1 — binding numbers)
 
@@ -165,14 +168,25 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
   log (`wood −1`, `carrying = true`); else stand watch (task stays, state `working`). The fire-side leg
   (deposit **and** stand-watch) uses the villager's own spot on the rest ring (golden angle, r=1.6) and
   the **rest approach arc**, exactly like `rest` — keepers never walk through or stand in the flames.
+  When `tend` is reassigned away (or stopped) while `carrying`, the log settles first: `carrying = false`
+  and `wood + 1` (no stranded logs, no permanent carry pose).
+- **Arrival slots** cover structures too: `pot` and `woodpile` targets use the same per-villager
+  golden-angle idiom at **r = 0.9**, with a tight arrival tolerance of **0.02** (movement clamps to the
+  remaining distance, so villagers land essentially on their slot — shared-structure arrivals stay
+  ≥ ~0.46 apart, above the 0.45 no-stacking bar). Nodes keep r = 0.75 / arrival 0.45.
+- **Any walking leg** whose straight chord passes within **1.1** of the campfire centre is bent via the
+  r = 2.2 bisector point (this covers tend-outbound and cook legs, not just rest/campfire arrivals).
+- **Out-of-tick events**: producers outside `tick()` (e.g. `buildStructure`) push to
+  `state.pendingEvents`; `tick()` seeds `events` from the queue and empties it — consumers never miss them.
 - **Rest duration by fire** (evaluated at rest start, committed to `villager.restMs`): fuel ≥33 →
   4000 ms · fuel >0 → 5500 ms · fuel = 0 → 7000 ms.
 - **Cook** (`cook`): requires the pot built; channel **3000 ms** per meal — costs **3 berries + 1 wood**,
-  yields 1 meal (`pot.meals +1`, event `meal-cooked`); loops while ingredients last; when they run
-  out → idle, task cleared (like rest completion).
-- **Eat**: a villager arriving to rest at `fuel ≥ 33` with `pot.meals > 0` consumes 1 meal
-  (`pot.meals −1`), rests **5500 ms**, sets `fedMs = 60000`, event `eat`. Well-fed villagers work
-  15 % faster (**1190 ms** per yield); `fedMs` decays with `dtMs` in every state.
+  yields 1 meal (`pot.meals +1`, event `meal-cooked`); loops while ingredients last; **affordability is
+  re-checked before every deduction**; when they run out → idle, task cleared (like rest completion).
+- **Eat**: a villager arriving to rest at `fuel ≥ 33` with `pot.meals > 0` **and `fedMs < 30000`**
+  consumes 1 meal (`pot.meals −1`), rests **5500 ms**, sets `fedMs = 60000`, event `eat`. A full belly
+  (`fedMs ≥ 30000`) rests normally without consuming. Well-fed villagers work 15 % faster (**1190 ms**
+  per yield); `fedMs` decays with `dtMs` in every state.
 - **Structures**: fixed ring r=5.2 at angles 30°, 90°, 150°, 210°, 270°, 330° →
   pot (20 wood) · bench (15 wood) · garden (25 wood) · lantern (10 wood) · lantern (10 wood) ·
   feeder (10 wood + 5 berries). `woodpile` is pre-built at (90°, r=2.6).

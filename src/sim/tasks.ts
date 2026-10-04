@@ -13,6 +13,12 @@ export const WORK_PERIOD_MS = 1400;
 export const REST_RING_RADIUS = 1.6;
 /** Work tasks aim at a per-villager slot around the target node, not the node itself. */
 export const WORK_SLOT_RADIUS = 0.75;
+/** Structure targets (pot, woodpile) use a wider per-villager slot (DESIGN.md §3.2). */
+export const STRUCTURE_SLOT_RADIUS = 0.9;
+/** Arrival at a structure slot needs ≤ 0.02 (DESIGN.md §3.2): the clamped final
+ * step lands essentially exactly on the slot, so settled cooks/keepers sit at
+ * ≈ full slot spacing instead of arrival-slop luck. */
+export const STRUCTURE_ARRIVAL_DISTANCE = 0.02;
 /** Golden angle in radians — spreads rest spots evenly and deterministically. */
 const GOLDEN_ANGLE = 2.399963;
 
@@ -30,7 +36,8 @@ export const FIRE_STEADY = 33;
 
 /**
  * Rest duration by fire state (DESIGN.md §3.2): a warm fire → a short rest,
- * a dying fire → a long one. Evaluated against the live fire each tick.
+ * a dying fire → a long one. Evaluated once, at rest start, and committed to
+ * the villager's restMs.
  */
 export function restDuration(fire: Fire): number {
   if (fire.fuel >= FIRE_STEADY) return 4000;
@@ -47,6 +54,8 @@ export const COOK_BERRIES = 3;
 export const COOK_WOOD = 1;
 /** Eating sets fedMs to 60000 (well-fed for 60 s). */
 export const FED_MS = 60000;
+/** A belly at fedMs ≥ 30000 eats no meal on rest arrival (DESIGN.md §3.2). */
+export const FED_FULL_BELLY_MS = 30000;
 /** Well-fed work period: 1190 ms per yield (15 % faster). */
 export const FED_WORK_PERIOD_MS = 1190;
 /** An eating villager rests 5500 ms. */
@@ -159,5 +168,20 @@ export function workSpot(nodePos: Vec2, villagerIndex: number): Vec2 {
   return {
     x: nodePos.x + Math.cos(a) * WORK_SLOT_RADIUS,
     z: nodePos.z + Math.sin(a) * WORK_SLOT_RADIUS,
+  };
+}
+
+/**
+ * Deterministic arrival slot for structure targets (DESIGN.md §3.2): same
+ * golden-angle idiom as workSpot, on a wider ring (r = 0.9) so eight cooks or
+ * keepers sharing one structure still clear the 0.45 separation bar
+ * (8-point golden-angle floor ≈ 0.503, tightened to ≈ 0.46 by the 0.02 arrival
+ * tolerance).
+ */
+export function structureSpot(structurePos: Vec2, villagerIndex: number): Vec2 {
+  const a = villagerIndex * GOLDEN_ANGLE;
+  return {
+    x: structurePos.x + Math.cos(a) * STRUCTURE_SLOT_RADIUS,
+    z: structurePos.z + Math.sin(a) * STRUCTURE_SLOT_RADIUS,
   };
 }

@@ -76,6 +76,42 @@ describe('persist', () => {
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: bad }));
       expect(loadGame(storage)).toBeNull();
     });
+
+    it('returns null when fire fuel/max or gardenMs are not numbers', () => {
+      const storage = makeStorageFake();
+      const noFuel = createInitialState();
+      (noFuel.fire as unknown as Record<string, unknown>).fuel = undefined;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: noFuel }));
+      expect(loadGame(storage)).toBeNull();
+
+      const badGarden = { ...createInitialState(), gardenMs: 'soon' };
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: badGarden }));
+      expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null when pendingEvents is missing', () => {
+      const storage = makeStorageFake();
+      const bad = { ...createInitialState(), pendingEvents: undefined };
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: bad }));
+      expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null when a villager misses activity fields', () => {
+      const storage = makeStorageFake();
+      const noRest = createInitialState();
+      delete (noRest.villagers[0] as unknown as Record<string, unknown>).restMs;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: noRest }));
+      expect(loadGame(storage)).toBeNull();
+
+      const badCarry = createInitialState();
+      (badCarry.villagers[1] as unknown as Record<string, unknown>).carrying = 'yes';
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: badCarry }));
+      expect(loadGame(storage)).toBeNull();
+
+      const nullTask = createInitialState(); // task: null is a valid shape
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: nullTask }));
+      expect(loadGame(storage)).not.toBeNull();
+    });
   });
 
   describe('clearSave', () => {

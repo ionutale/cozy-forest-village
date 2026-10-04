@@ -19,19 +19,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Plausible-shape check (B3 spec): villagers / nodes / structures are arrays and
- * fire / pot are objects. Deliberately shallow — enough to reject corrupt saves
- * without over-rejecting a valid one.
+ * Plausible-shape check: arrays / objects with the right containers, numeric
+ * fire + garden fields, a pendingEvents queue, and per-villager activity
+ * fields (a save missing those would NaN the fuel or rest forever).
+ * Deliberately shallow — enough to reject corrupt saves without over-rejecting.
  */
 function isPlausibleState(value: unknown): value is GameState {
   if (!isRecord(value)) return false;
-  return (
-    Array.isArray(value.villagers) &&
-    Array.isArray(value.nodes) &&
-    Array.isArray(value.structures) &&
-    isRecord(value.fire) &&
-    isRecord(value.pot)
-  );
+  if (
+    !Array.isArray(value.villagers) ||
+    !Array.isArray(value.nodes) ||
+    !Array.isArray(value.structures) ||
+    !Array.isArray(value.pendingEvents)
+  ) {
+    return false;
+  }
+  const fire = value.fire;
+  if (!isRecord(fire)) return false;
+  if (typeof fire.fuel !== 'number' || typeof fire.max !== 'number') return false;
+  if (!isRecord(value.pot)) return false;
+  if (typeof value.gardenMs !== 'number') return false;
+  for (const v of value.villagers) {
+    if (!isRecord(v)) return false;
+    if (typeof v.restMs !== 'number' || typeof v.fedMs !== 'number') return false;
+    if (typeof v.carrying !== 'boolean') return false;
+    if (typeof v.task !== 'string' && v.task !== null) return false;
+    if (typeof v.state !== 'string') return false;
+  }
+  return true;
 }
 
 /**

@@ -40,14 +40,20 @@ describe('structure ring & initial shape', () => {
 });
 
 describe('buildStructure', () => {
-  it('spends the cost exactly once, sets built, emits built', () => {
+  it('spends the cost exactly once, sets built, queues built for the next tick', () => {
     const state = createInitialState();
     state.resources.wood = 100;
     state.resources.berries = 100;
     expect(buildStructure(state, 'pot')).toBe(true);
     expect(state.resources.wood).toBe(80); // 20 for the pot
     expect(state.structures.find((s) => s.id === 'pot')?.built).toBe(true);
+    // Out-of-tick contract (DESIGN.md §3.2): the event queues immediately…
+    expect(state.pendingEvents).toContainEqual({ type: 'built', structureId: 'pot' });
+    expect(state.events).toEqual([]);
+    // …and becomes observable on the next tick, then clears the queue.
+    tick(state, 100);
     expect(state.events).toContainEqual({ type: 'built', structureId: 'pot' });
+    expect(state.pendingEvents).toEqual([]);
   });
 
   it('returns false on repeat / unknown / unaffordable and spends nothing then', () => {
@@ -107,6 +113,74 @@ describe('cook', () => {
     expect(v.state).toBe('idle');
     expect(v.task).toBeNull();
   });
+
+  it('a large dt never drives the ledger negative: one affordable meal, then idle', () => {
+    const state = createInitialState();
+    state.resources.wood = 21; // 20 for the pot + 1 for a single meal
+    state.resources.berries = 3;
+    expect(buildStructure(state, 'pot')).toBe(true);
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'cook');
+    runUntil(state, () => v.state === 'working', 30_000, 50);
+    expect(v.state).toBe('working');
+
+    // Exactly one meal's worth of ingredients and a 60 s tick: the loop must
+    // cook once, then idle on the dry check — never 20 meals at −57/−19.
+    state.resources.berries = 3;
+    state.resources.wood = 1;
+    state.pot.meals = 0;
+    v.progressMs = 0;
+    tick(state, 60000);
+    expect(state.resources.berries).toBeGreaterThanOrEqual(0);
+    expect(state.resources.wood).toBeGreaterThanOrEqual(0);
+    expect(state.pot.meals).toBe(1);
+    expect(v.state).toBe('idle');
+    expect(v.task).toBeNull();
+    expect(state.events.filter((e) => e.type === 'meal-cooked')).toHaveLength(1);
+  });
+
+  it('all 8 cooks settle around the pot without stacking (pairwise ≥ 0.45)', () => {
+    const state = createInitialState();
+    state.resources.wood = 20 + 1000; // pot + plenty to keep every cook working
+    state.resources.berries = 1000;
+    expect(buildStructure(state, 'pot')).toBe(true);
+    for (const v of state.villagers) assignTask(state, v.id, 'cook');
+    runUntil(
+      state,
+      () => state.villagers.every((v) => v.state === 'working'),
+      60_000,
+      50,
+    );
+    expect(state.villagers.every((v) => v.state === 'working')).toBe(true);
+    for (let i = 0; i < state.villagers.length; i += 1) {
+      for (let j = i + 1; j < state.villagers.length; j += 1) {
+        const a = state.villagers[i]!;
+        const b = state.villagers[j]!;
+        expect(Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z)).toBeGreaterThanOrEqual(0.45);
+      }
+    }
+  });
+
+  it('every cook walks to the pot without crossing the flames (min > 1.0)', () => {
+    for (let i = 0; i < 8; i += 1) {
+      const state = createInitialState();
+      state.resources.wood = 20;
+      state.resources.berries = 30;
+      expect(buildStructure(state, 'pot')).toBe(true);
+      const v = state.villagers[i]!;
+      assignTask(state, v.id, 'cook');
+      let minDist = Infinity;
+      const maxSteps = Math.round(60_000 / 50);
+      for (let s = 0; s < maxSteps; s += 1) {
+        tick(state, 50);
+        const d = Math.hypot(v.pos.x, v.pos.z); // campfire is at the origin
+        if (d < minDist) minDist = d;
+        if (v.state === 'working') break;
+      }
+      expect(v.state).toBe('working');
+      expect(minDist).toBeGreaterThan(1.0);
+    }
+  });
 });
 
 describe('eat + fed', () => {
@@ -138,6 +212,33 @@ describe('eat + fed', () => {
     expect(state.pot.meals).toBe(1);
     expect(v.fedMs).toBe(0);
     expect(state.events.filter((e) => e.type === 'eat')).toHaveLength(0);
+  });
+
+  it('a full belly (fedMs ≥ 30000) rests without consuming a meal', () => {
+    const state = createInitialState();
+    state.pot.meals = 1;
+    state.fire.fuel = 70;
+    const v = state.villagers[0]!;
+    v.fedMs = 55000; // well-fed: the meal stays in the pot
+    assignTask(state, v.id, 'rest');
+    runUntil(state, () => v.state === 'resting', 10_000, 50);
+    expect(v.state).toBe('resting');
+    expect(state.pot.meals).toBe(1);
+    expect(state.events.filter((e) => e.type === 'eat')).toHaveLength(0);
+    expect(v.restMs).toBe(4000); // normal warm-fire rest, not the 5500 ms eat rest
+  });
+
+  it('a nearly-hungry belly (fedMs < 30000) still eats', () => {
+    const state = createInitialState();
+    state.pot.meals = 1;
+    state.fire.fuel = 70;
+    const v = state.villagers[0]!;
+    v.fedMs = 29999;
+    assignTask(state, v.id, 'rest');
+    runUntil(state, () => v.state === 'resting', 10_000, 50);
+    expect(state.pot.meals).toBe(0);
+    expect(v.fedMs).toBe(60000);
+    expect(state.events.filter((e) => e.type === 'eat')).toHaveLength(1);
   });
 
   it('while fedMs > 0 a chop yield lands at 1190 ms; after decay, at 1400 ms', () => {

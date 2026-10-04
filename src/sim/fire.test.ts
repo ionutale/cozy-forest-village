@@ -146,6 +146,60 @@ describe('tend fire keeper loop', () => {
       expect(minDist).toBeGreaterThan(1.0);
     }
   });
+
+  it('reassigning a carrying keeper refunds the log (no stranded log, no carry pose)', () => {
+    const state = createInitialState();
+    state.resources.wood = 1;
+    state.fire.fuel = 30;
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'tend');
+    runUntil(state, () => v.carrying, 30_000, 50);
+    expect(v.carrying).toBe(true);
+    expect(state.resources.wood).toBe(0);
+
+    assignTask(state, v.id, 'chop'); // away from tend: the hand settles first
+    expect(v.carrying).toBe(false);
+    expect(state.resources.wood).toBe(1);
+    expect(v.task).toBe('chop');
+    expect(v.state).toBe('walking');
+  });
+
+  it('stopping a carrying keeper refunds the log and idles', () => {
+    const state = createInitialState();
+    state.resources.wood = 1;
+    state.fire.fuel = 30;
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'tend');
+    runUntil(state, () => v.carrying, 30_000, 50);
+    expect(v.carrying).toBe(true);
+
+    assignTask(state, v.id, null);
+    expect(v.carrying).toBe(false);
+    expect(state.resources.wood).toBe(1);
+    expect(v.task).toBeNull();
+    expect(v.state).toBe('idle');
+  });
+
+  it('every keeper walks to the woodpile without crossing the flames (min > 1.0)', () => {
+    for (let i = 0; i < 8; i += 1) {
+      const state = createInitialState();
+      state.resources.wood = 5;
+      state.fire.fuel = 30; // ≤ 75: the keeper heads for the woodpile
+      const v = state.villagers[i]!;
+      assignTask(state, v.id, 'tend');
+      // Outbound leg only: track the closest approach until the log is taken.
+      let minDist = Infinity;
+      const maxSteps = Math.round(60_000 / 50);
+      for (let s = 0; s < maxSteps; s += 1) {
+        tick(state, 50);
+        const d = Math.hypot(v.pos.x, v.pos.z); // campfire is at the origin
+        if (d < minDist) minDist = d;
+        if (v.carrying) break;
+      }
+      expect(v.carrying).toBe(true);
+      expect(minDist).toBeGreaterThan(1.0);
+    }
+  });
 });
 
 describe('world gen & initial shape (batch 2)', () => {

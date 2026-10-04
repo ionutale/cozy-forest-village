@@ -65,5 +65,6 @@ export interface GameState {
   fire: Fire;
   pot: Pot;
   gardenMs: number; // accumulator for the built garden's +1 berry / 30000 ms
-  events: SimEvent[]; // events from the latest tick; cleared at the start of each tick
+  events: SimEvent[]; // events from the latest tick; seeded from pendingEvents at tick start
+  pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
 }
