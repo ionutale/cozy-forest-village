@@ -13,6 +13,8 @@ export const WORK_PERIOD_MS = 1400;
 export const REST_DURATION_MS = 4000;
 /** Resting villagers settle on a ring around the campfire, not inside it. */
 export const REST_RING_RADIUS = 1.6;
+/** Work tasks aim at a per-villager slot around the target node, not the node itself. */
+export const WORK_SLOT_RADIUS = 0.75;
 /** Golden angle in radians — spreads rest spots evenly and deterministically. */
 const GOLDEN_ANGLE = 2.399963;
 
@@ -56,5 +58,18 @@ export function restSpot(campfirePos: Vec2, villagerIndex: number): Vec2 {
   return {
     x: campfirePos.x + Math.cos(a) * REST_RING_RADIUS,
     z: campfirePos.z + Math.sin(a) * REST_RING_RADIUS,
+  };
+}
+
+/**
+ * Deterministic work target for a villager: a point on a small ring around the
+ * target node, at angle = villagerIndex × golden angle. Keeps villagers from
+ * stacking inside the same trunk/bush while spreading them deterministically.
+ */
+export function workSpot(nodePos: Vec2, villagerIndex: number): Vec2 {
+  const a = villagerIndex * GOLDEN_ANGLE;
+  return {
+    x: nodePos.x + Math.cos(a) * WORK_SLOT_RADIUS,
+    z: nodePos.z + Math.sin(a) * WORK_SLOT_RADIUS,
   };
 }

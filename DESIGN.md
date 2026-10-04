@@ -114,16 +114,15 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
 
 - Movement: straight line (no pathfinding), speed **2.2 units/s**; arrival when distance **≤ 0.45**.
 - Arrival points: work tasks (`chop`, `berries`) aim at a per-villager slot around the target node —
-  offset radius **0.55**, angle = villager index × golden angle (same idiom as rest) — so villagers never
+  offset radius **0.75**, angle = villager index × golden angle (same idiom as rest) — so villagers never
   stack inside the same trunk/bush. `targetNodeId` stays the nearest node.
 - Work: one yield per **1400 ms** of continuous work — `chop` → wood +1, `berries` → berries +1.
   Villagers keep working until reassigned; nodes never deplete in slice 1.
 - Rest: the target is a spot on a ring of radius **1.6** around the campfire, angle = villager index ×
   golden angle (2.399963 rad) — deterministic and spread out. **Approach arc:** while the shortest angular
-  difference to the spot exceeds **0.25 rad** and the villager is farther than 2.2 from the campfire, the
-  walk aims at a point on the **r = 2.2** ring at the angle bisector; then straight to the spot. Paths
-  never pass within ~1.1 of the fire centre. After **4000 ms** of resting the villager becomes idle,
-  `task` clears, one `rest-done` event.
+  difference to the spot exceeds **0.25 rad**, the walk aims at a point on the **r = 2.2** ring at the
+  angle bisector; when it is ≤ 0.25 rad, straight to the spot. Paths never pass within ~1.1 of the fire
+  centre. After **4000 ms** of resting the villager becomes idle, `task` clears, one `rest-done` event.
 - Task → node kind: chop → tree, berries → bush, rest → campfire. Target = nearest node of that
   kind (squared distance; ties broken by node id ascending).
 - `assignTask(state, id, null)` → idle, target cleared. Reassigning mid-walk retargets immediately;

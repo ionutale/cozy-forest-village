@@ -154,3 +154,53 @@ Tests:
 
 Re-verified: `pnpm exec tsc --noEmit` clean, `pnpm build` ✓, `pnpm test` →
 19/19 passing (3 files).
+
+## Round 3 — pre-playtest fix round (F1–F4, resolved)
+
+**F1: work arrival slots.** Four villagers were stacking inside one trunk
+(closest pair measured 0.072 u). `chop`/`berries` now aim at a per-villager
+slot — `workSpot(nodePos, i)` in `src/sim/tasks.ts`, mirroring `restSpot`:
+slot = node position + `(cos a, sin a) × WORK_SLOT_RADIUS (0.75)`,
+`a = villager index × GOLDEN_ANGLE`. `targetNodeId` stays the nearest node;
+`facing` aims at the slot; arrival at ≤ `ARRIVAL_DISTANCE` (0.45) of the slot.
+Follow-up correction: the first cut used `WORK_SLOT_RADIUS = 0.55` and a
+`≥ 0.7` pairwise test, which failed (measured min pair 0.6499 — worst case is
+two slots `2·r·sin(68.75°)` apart minus 2×0.45 of arrival slop). Radius is now
+**0.75** (typical pair ≥ 0.8) and the test asserts **≥ 0.45** with a comment:
+bodies are ~0.34 u wide, so > 0.45 means no visual clipping even in the
+geometric worst case. Measured min pair on the default seed: **0.546**.
+
+**F2: rest approach arc.** Rest paths crossed the flames (min 0.22 u).
+`walk` now steers rest walkers via the DESIGN §3.1 arc: with `spot =
+restSpot(...)` and `dAng` the shortest signed angular gap from the villager's
+current campfire angle to the spot's angle, the walk aims at the bisector
+point on the r = 2.2 ring whenever `|dAng| > 0.25`, else straight at the spot.
+Follow-up correction: the first cut gated the arc on `rv > 2.2`, which
+disengaged it inside 2.2 while `dAng` was still large, so the remaining chord
+cut near the fire (measured min 0.563). The distance gate is removed — the arc
+stays engaged at any radius — bounding the minimum fire distance ≥ ~1.4.
+Measured per-villager minima on the default seed: **1.588–1.991**, all > 1.0.
+
+**F3: non-finite `dtMs`.** `tick` coerces NaN / ±Infinity to 0 before the
+existing `!(dtMs > 0)` return; the tick counter still advances and events
+still clear.
+
+**F4: same-task re-assignment is a no-op.** `assignTask` resolves the new
+target id first and returns untouched when `task` + target are unchanged and
+the villager isn't idle (preserves `progressMs`/`state`, emits no spurious
+`arrived`); `null` on an already-idle villager is likewise a no-op.
+
+Tests (updated + new in `src/sim/behavior.test.ts`, one assertion in
+`src/sim/sim.test.ts` now measured against `workSpot`):
+- Arrival-boundary test repositions relative to the villager's work slot
+  (slot + 0.68 on x, tree chosen so it stays the nearest).
+- Rest facing test recomputes the expected steering target with the arc rule
+  (no distance gate).
+- `work slots`: all 8 on `chop` → all `working`, pairwise ≥ 0.45.
+- `rest approach arc`: each villager walks to `rest` with min fire distance > 1.0.
+- `tick(state, Infinity)`: counter +1, everything else unchanged, no NaN.
+- Same-task reassignment while working keeps `progressMs` (700 → 700, then
+  800 after one 100 ms tick, no `arrived`); `null`-on-idle is a no-op.
+
+Re-verified: `pnpm exec tsc --noEmit` clean, `pnpm build` ✓, `pnpm test` →
+24/24 passing (3 files).

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { GameState, ResourceNode } from './index';
 import { assignTask, createInitialState, tick } from './index';
+import { workSpot } from './tasks';
 
 /** Ticks the sim forward in fixed steps. */
 function run(state: GameState, totalMs: number, stepMs: number): void {
@@ -117,7 +118,8 @@ describe('walk → work', () => {
     expect(state.events).toContainEqual({ type: 'arrived', villagerId: v.id });
     const node = state.nodes.find((n) => n.id === v.targetNodeId);
     if (!node) throw new Error('target node missing');
-    expect(Math.hypot(v.pos.x - node.pos.x, v.pos.z - node.pos.z)).toBeLessThanOrEqual(0.45);
+    const slot = workSpot(node.pos, 0); // v is villagers[0]
+    expect(Math.hypot(v.pos.x - slot.x, v.pos.z - slot.z)).toBeLessThanOrEqual(0.45);
 
     const wood0 = state.resources.wood;
     run(state, 1400, 100);

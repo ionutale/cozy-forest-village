@@ -12,7 +12,7 @@ export type {
   VillagerState,
 } from './types';
 
-import type { GameState, TaskId, Villager } from './types';
+import type { GameState, TaskId, Vec2, Villager } from './types';
 import { mulberry32 } from './rng';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
@@ -24,6 +24,7 @@ import {
   WORK_PERIOD_MS,
   nearestNode,
   restSpot,
+  workSpot,
 } from './tasks';
 
 export function createInitialState(seed = 1): GameState {
@@ -41,22 +42,31 @@ export function createInitialState(seed = 1): GameState {
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void {
   const villager = state.villagers.find((v) => v.id === villagerId);
   if (!villager) return; // unknown id: no-op
-  villager.task = task;
-  villager.progressMs = 0;
   if (task === null) {
+    if (villager.task === null && villager.state === 'idle') return; // no-op
+    villager.task = null;
+    villager.progressMs = 0;
     villager.state = 'idle';
     villager.targetNodeId = null;
     return;
   }
   const target = nearestNode(state.nodes, villager.pos, TASK_KIND[task]);
-  villager.targetNodeId = target ? target.id : null;
+  const newTargetId = target ? target.id : null;
+  // Same task + same resolved target while active: no-op (keeps progress).
+  if (task === villager.task && newTargetId === villager.targetNodeId && villager.state !== 'idle') {
+    return;
+  }
+  villager.task = task;
+  villager.progressMs = 0;
+  villager.targetNodeId = newTargetId;
   villager.state = 'walking';
 }
 
 export function tick(state: GameState, dtMs: number): void {
   state.tick += 1;
   state.events = [];
-  if (!(dtMs > 0)) return; // dtMs = 0 (or NaN): counters advance, nothing else
+  if (!Number.isFinite(dtMs)) dtMs = 0; // NaN / ±Infinity: counters advance, nothing else
+  if (!(dtMs > 0)) return; // dtMs = 0 (or was non-finite): no simulation movement
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
     switch (villager.state) {
@@ -75,6 +85,19 @@ export function tick(state: GameState, dtMs: number): void {
   }
 }
 
+/** Rest approach arc (DESIGN.md §3.1): swing around the fire, never through it. */
+const REST_ARC_RADIUS = 2.2;
+const REST_ARC_MAX_DANG = 0.25;
+
+/** Shortest signed angular difference from `from` to `to`, in (−π, π]. */
+function signedAngDiff(from: number, to: number): number {
+  const tau = Math.PI * 2;
+  let d = (to - from) % tau;
+  if (d > Math.PI) d -= tau;
+  if (d < -Math.PI) d += tau;
+  return d;
+}
+
 function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
   const node = state.nodes.find((n) => n.id === villager.targetNodeId);
   if (!node) {
@@ -84,8 +107,37 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     villager.targetNodeId = null;
     return;
   }
-  // Resting villagers settle on a ring around the campfire, not inside it.
-  const target = villager.task === 'rest' ? restSpot(node.pos, villagerIndex) : node.pos;
+  // `arrival` is the point that completes the walk; `target` is this tick's
+  // steering point (they differ only on the rest approach arc).
+  let arrival: Vec2;
+  let target: Vec2;
+  if (villager.task === 'rest') {
+    // Resting villagers settle on a ring around the campfire, not inside it:
+    // whenever the angular gap to the spot exceeds 0.25 rad, swing around the
+    // flames via the bisector point on the r = 2.2 ring; otherwise head straight
+    // to the spot. No distance gate — the arc stays engaged at any radius, so
+    // the remaining chord can never cut close to the fire centre.
+    arrival = restSpot(node.pos, villagerIndex);
+    const angCur = Math.atan2(villager.pos.z - node.pos.z, villager.pos.x - node.pos.x);
+    const angSpot = Math.atan2(arrival.z - node.pos.z, arrival.x - node.pos.x);
+    const dAng = signedAngDiff(angCur, angSpot);
+    if (Math.abs(dAng) > REST_ARC_MAX_DANG) {
+      const a = angCur + dAng / 2;
+      target = {
+        x: node.pos.x + Math.cos(a) * REST_ARC_RADIUS,
+        z: node.pos.z + Math.sin(a) * REST_ARC_RADIUS,
+      };
+    } else {
+      target = arrival;
+    }
+  } else if (villager.task === 'chop' || villager.task === 'berries') {
+    // Work tasks aim at a per-villager slot around the node, not the node itself.
+    arrival = workSpot(node.pos, villagerIndex);
+    target = arrival;
+  } else {
+    arrival = node.pos;
+    target = arrival;
+  }
   const dx = target.x - villager.pos.x;
   const dz = target.z - villager.pos.z;
   const dist = Math.hypot(dx, dz);
@@ -95,7 +147,7 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     villager.pos.x += (dx / dist) * move;
     villager.pos.z += (dz / dist) * move;
   }
-  if (dist - move <= ARRIVAL_DISTANCE) {
+  if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= ARRIVAL_DISTANCE) {
     villager.state = villager.task === 'rest' ? 'resting' : 'working';
     villager.progressMs = 0;
     state.events.push({ type: 'arrived', villagerId: villager.id });
