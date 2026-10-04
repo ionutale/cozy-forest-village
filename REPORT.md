@@ -40,7 +40,8 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B5 | Render: structures + ghosts + picking | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · pick 7/7 (cross-validated probe) ✅ · calls 120/154 ✅ | 5/5 |
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · stir 1.19Hz · shiver 6.96Hz · hearts pooled 4 · calls 168 ✅ | 4.5/5 |
 | B7 | UI: fuel pill, task grid, build cards, reset | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · orchestrator flow: card→build→cook ✅ · calls 135 ✅ | 4.5/5 |
-| B8 | Audio: crackle + new SFX | queued | — | — | — | — |
+| B8 | Audio: crackle + new SFX | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 51/51 ✅ · dormant pre-gesture ✅ · console clean ✅ | 4.5/5 |
+| B9 | Batch-2 independent review + 20 proposals | in progress | `opencode/mimo-v2.6-flash-free` | — | — | — |
 | B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
