@@ -162,7 +162,9 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
   (cap 100); logs come from `resources.wood`.
 - **Tend fire** (`tend`): keeper loop, re-evaluated every tick — if `carrying` → walk to the campfire,
   deposit (+25 fuel, event `fuel-add`); else if `wood ≥ 1 && fuel ≤ 75` → walk to the woodpile, take a
-  log (`wood −1`, `carrying = true`); else stand watch at the fire (task stays, state `working`).
+  log (`wood −1`, `carrying = true`); else stand watch (task stays, state `working`). The fire-side leg
+  (deposit **and** stand-watch) uses the villager's own spot on the rest ring (golden angle, r=1.6) and
+  the **rest approach arc**, exactly like `rest` — keepers never walk through or stand in the flames.
 - **Rest duration by fire** (evaluated at rest start, committed to `villager.restMs`): fuel ≥33 →
   4000 ms · fuel >0 → 5500 ms · fuel = 0 → 7000 ms.
 - **Cook** (`cook`): requires the pot built; channel **3000 ms** per meal — costs **3 berries + 1 wood**,

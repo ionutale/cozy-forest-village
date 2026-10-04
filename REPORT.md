@@ -39,7 +39,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B4 | Render: fire visuals + warm light | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · fuel 70/20/0 screenshots ✅ · calls 86 ✅ | 4.5/5 |
 | B5 | Render: structures + ghosts + picking | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · pick 7/7 (cross-validated probe) ✅ · calls 120/154 ✅ | 5/5 |
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · stir 1.19Hz · shiver 6.96Hz · hearts pooled 4 · calls 168 ✅ | 4.5/5 |
-| B7 | UI: fuel pill, task grid, build cards, reset | queued | — | — | — | — |
+| B7 | UI: fuel pill, task grid, build cards, reset | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · orchestrator flow: card→build→cook ✅ · calls 135 ✅ | 4.5/5 |
 | B8 | Audio: crackle + new SFX | queued | — | — | — | — |
 | B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
 
@@ -88,7 +88,26 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B6 complete (commit pending)
+### 2026-10-04 — B7 complete + keeper-ring field fix (commit pending)
+- Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
+- Deliverable: fuel pill (value + mini bar + `data-state`), 2×3 task grid with Cook/Stop gating,
+  structure cards (cost/shortfall/Build; built status incl. `Meals: N`), two-step reset, `Tending…`/
+  `Cooking` labels, canvas pick order villager → structure → clear.
+- Model-side catch: `resetVillage` was undone by M12's `pagehide → saveGame` — fixed with a `wiped`
+  guard and re-verified end to end (boundary bugs like this are exactly why per-task validation exists).
+- Orchestrator flow run: calibrated projection (0.00 px error vs `projectVillager`) → clicked the pot
+  ghost → card showed cost, Build disabled-correctly and spent 50→30 wood, ghost→model swap; Cook
+  enabled only with the pot; one meal cooked; fuel pill live (`Fire 68`, roaring); calls 135; console
+  clean (synthetic-pointer `setPointerCapture` artifact only). Evidence `docs/validation/B7-*.png`.
+- **Field fix dispatched after playtest-style validation**: the Tend keeper stood at 0.42 from the fire
+  centre — inside the stone ring. Ruling: any campfire-bound destination (rest AND tend legs) now uses
+  the rest-ring spot + approach arc (muse-spark, F1 arc author). Keeper settles at 1.95; the fix also
+  removed `arrived`-event spam that the ring spot would otherwise have caused (caught by the model).
+  51/51 tests; DESIGN §3.2 updated.
+- Delegated/checked afterwards: `STRUCTURE_COST` is duplicated in the UI (sim does not export it) —
+  parked for the B9 fix batch; no 3D highlight for a selected structure (playtest improvement).
+
+### 2026-10-04 — B6 complete (commit 0446852)
 - Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
 - Deliverable: carry log + raised arms while `carrying`, cook stir (`working`+`cook`), pooled heart
   sprites on `eat` events (max 4) with savoring bob, embers shiver (`fuel 0`, idle/resting only).

@@ -86,7 +86,10 @@ type-surface fix only; no UI behavior changed.
 
 - `pnpm exec tsc --noEmit` — **green**
 - `pnpm build` — **green**
-- `pnpm test` — **32 passed** (24 existing + 8 new B1 tests)
+- `pnpm test` — **32 passed** (24 existing + 8 new B1 tests) (24 existing + 8 new B1 tests)
+- No `any`; no `Math.random` / `Date.now` inside `src/sim/` (deterministic).
+- `src/sim/index.ts` is 262 lines (slightly over the ~220 soft target — the keeper/fire/structure
+  logic is substantial; can be trimmed if the orchestrator requires).
 - No `any`; no `Math.random` / `Date.now` inside `src/sim/` (deterministic).
 - `src/sim/index.ts` is 262 lines (slightly over the ~220 soft target — the keeper/fire/structure
   logic is substantial; can be trimmed if the orchestrator requires).
@@ -101,3 +104,38 @@ type-surface fix only; no UI behavior changed.
   prefers locking the duration at rest start, that would require a new state field.
 - **Cook/eat/garden/other structures are clean seams** for B2: `TASK_STRUCTURE` resolves the
   pot, `restDuration` is a pure helper, and the walk FSM already handles structure targets.
+
+## Round 4 — keeper stands inside the stone ring (fixed)
+
+**Bug:** the Tend-fire keeper settled at 0.42 from the fire centre, inside the
+stone ring beside the flame. Root cause: the fire-side legs of `tend` targeted
+the campfire node position directly, bypassing the rest-ring/arc logic —
+`walk()` gated rest-style steering on `task === 'rest'`, so tend legs fell into
+the straight-to-centre branch.
+
+**Fix** (`src/sim/index.ts`, per DESIGN §3.2 — nothing else changed):
+- `walk()` now treats **any destination resolving to the campfire**
+  (`villager.targetNodeId === CAMPFIRE_ID`) as a rest-style target: arrival =
+  `restSpot(center, villagerIndex)` with the existing bisector-arc steering.
+  This covers `rest` (unchanged — it always targets the campfire) plus the
+  keeper's deposit and stand-watch legs. Woodpile/pot legs still steer straight
+  to their target. Arrival side-effects (`fuel-add`, log take, eat) untouched.
+- Required consistency adjustment in `tendKeeper` (leg selection unchanged —
+  it still sets `targetNodeId = CAMPFIRE_ID` for deposit/stand-watch): it now
+  takes the villager index and measures fire-side proximity against the same
+  ring spot `walk()` steers to. Without this, a keeper settled at its spot
+  (1.6 from the centre) would be forced back to `walking` every tick by the
+  old dist-to-centre check and re-emit `arrived` forever. Verified: 200 watch
+  ticks produce zero `arrived` events.
+- This also fixes keeper paths that clipped the ring: a woodpile→spot chord
+  for some golden angles (e.g. villager index 2, spot ≈ 270° from the woodpile
+  at 90°) passes within ~0.07 of the centre; the arc now swings it around.
+
+**Tests** (new in `src/sim/fire.test.ts`, mirrors the rest-ring/rest-arc tests):
+- Stand-watch keeper (`wood = 0`) settles at distance 1.15–2.05 from the fire
+  centre. Measured on the default seed: **1.943**.
+- Mid-cycle keeper (`wood = 5`, `fuel = 30`): minimum fire-centre distance
+  during the woodpile→fire leg > 1.0, checked for all 8 villager indices.
+
+**Verification:** `pnpm exec tsc --noEmit` clean, `pnpm build` ✓, `pnpm test` →
+51/51 passing (6 files; all 49 pre-existing green + 2 new).

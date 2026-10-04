@@ -108,6 +108,44 @@ describe('tend fire keeper loop', () => {
     expect(state.resources.wood).toBe(5);
     expect(state.events.filter((e) => e.type === 'fuel-add')).toHaveLength(0);
   });
+
+  it('stand-watch keeper settles on the rest ring, not inside it (1.15–2.05)', () => {
+    const state = createInitialState();
+    state.resources.wood = 0; // nothing to fetch: stand watch from the start
+    state.fire.fuel = 50;
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'tend');
+    runUntil(state, () => v.state === 'working', 30_000, 50);
+    expect(v.state).toBe('working');
+    expect(v.task).toBe('tend');
+    expect(v.targetNodeId).toBe('campfire');
+    const d = Math.hypot(v.pos.x, v.pos.z); // campfire is at the origin
+    expect(d).toBeGreaterThanOrEqual(1.15);
+    expect(d).toBeLessThanOrEqual(2.05);
+  });
+
+  it('keeper woodpile→fire leg never crosses the flames (min > 1.0)', () => {
+    for (let i = 0; i < 8; i += 1) {
+      const state = createInitialState();
+      state.resources.wood = 5;
+      state.fire.fuel = 30; // ≤ 75: the keeper fetches, then deposits
+      const v = state.villagers[i]!;
+      assignTask(state, v.id, 'tend');
+      runUntil(state, () => v.carrying, 60_000, 50);
+      expect(v.carrying).toBe(true);
+      // Deposit leg only: track the closest approach to the fire centre.
+      let minDist = Infinity;
+      const maxSteps = Math.round(60_000 / 50);
+      for (let s = 0; s < maxSteps; s += 1) {
+        tick(state, 50);
+        const d = Math.hypot(v.pos.x, v.pos.z); // campfire is at the origin
+        if (d < minDist) minDist = d;
+        if (!v.carrying) break;
+      }
+      expect(v.carrying).toBe(false); // deposited
+      expect(minDist).toBeGreaterThan(1.0);
+    }
+  });
 });
 
 describe('world gen & initial shape (batch 2)', () => {

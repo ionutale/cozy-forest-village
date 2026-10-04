@@ -138,7 +138,7 @@ export function tick(state: GameState, dtMs: number): void {
     // fedMs decays with dtMs in every state (DESIGN.md §3.2). Runs before the
     // state switch so an eat this tick sets fedMs after the decay.
     if (villager.fedMs > 0) villager.fedMs = Math.max(0, villager.fedMs - dtMs);
-    if (villager.task === 'tend') tendKeeper(state, villager);
+    if (villager.task === 'tend') tendKeeper(state, villager, i);
     switch (villager.state) {
       case 'walking':
         walk(state, villager, i, dtMs);
@@ -170,7 +170,7 @@ function resolveTargetPos(state: GameState, targetId: string | null): Vec2 | nul
  * walk to the campfire and deposit; else fetch a log while wood ≥ 1 && fuel ≤ 75;
  * else stand watch at the fire (task stays, state `working`).
  */
-function tendKeeper(state: GameState, villager: Villager): void {
+function tendKeeper(state: GameState, villager: Villager, villagerIndex: number): void {
   let targetId: string;
   if (villager.carrying) {
     targetId = CAMPFIRE_ID;
@@ -188,7 +188,12 @@ function tendKeeper(state: GameState, villager: Villager): void {
     villager.targetNodeId = null;
     return;
   }
-  const dist = Math.hypot(pos.x - villager.pos.x, pos.z - villager.pos.z);
+  // Fire-side legs settle at the villager's ring spot — the same point walk()
+  // steers to — so measure arrival there, not at the fire centre. Otherwise a
+  // keeper standing at its spot (1.6 from the centre) would be forced back to
+  // 'walking' every tick and re-emit 'arrived' forever.
+  const arrival = targetId === CAMPFIRE_ID ? restSpot(pos, villagerIndex) : pos;
+  const dist = Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z);
   if (dist > ARRIVAL_DISTANCE) {
     villager.state = 'walking';
   } else if (villager.state !== 'working') {
@@ -223,11 +228,14 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
   // differ only on the rest approach arc).
   let arrival: Vec2;
   let target: Vec2;
-  if (villager.task === 'rest') {
-    // Settle on a ring around the campfire: while the angular gap to the spot
-    // exceeds 0.25 rad, swing via the bisector point on the r = 2.2 ring;
-    // otherwise head straight to the spot. No distance gate — the arc stays
-    // engaged at any radius, so the chord can never cut close to the fire.
+  if (villager.targetNodeId === CAMPFIRE_ID) {
+    // Any destination at the campfire — rest AND the tend keeper's deposit and
+    // stand-watch legs — settles on the villager's ring spot around the fire:
+    // while the angular gap to the spot exceeds 0.25 rad, swing via the
+    // bisector point on the r = 2.2 ring; otherwise head straight to the spot.
+    // No distance gate — the arc stays engaged at any radius, so the chord can
+    // never cut close to the fire (this also saves keeper woodpile→spot legs
+    // whose straight chord would pass through the centre).
     arrival = restSpot(center, villagerIndex);
     const angCur = Math.atan2(villager.pos.z - center.z, villager.pos.x - center.x);
     const angSpot = Math.atan2(arrival.z - center.z, arrival.x - center.x);
@@ -246,7 +254,7 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     arrival = workSpot(center, villagerIndex);
     target = arrival;
   } else {
-    // tend / cook (and any future task): straight to the target position.
+    // cook (and any future non-campfire task): straight to the target position.
     arrival = center;
     target = arrival;
   }
