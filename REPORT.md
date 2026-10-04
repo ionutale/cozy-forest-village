@@ -26,7 +26,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T1 | Scaffold + cozy UI shell + base scene | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build/test ✅ · browser ✅ · console clean ✅ · cozy ✅ | 4.5/5 |
 | T2 | Pure sim core (FSM, tasks, RNG) + vitest | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 + 1 fix | tsc/build ✅ · 17/17 tests ✅ · code review ✅ | 4.5/5 |
 | T3 | Forest environment (InstancedMesh, light, fog) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser ✅ · calls 14 / tris 16.7k ✅ | 4.5/5 |
-| T4 | Villagers (primitives + hats + procedural anim) | queued | — | — | — | — |
+| T4 | Villagers (primitives + hats + procedural anim) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser behavior + FPS ✅ | 4.5/5 |
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | queued | — | — | — | — |
 | T6 | Ambient life + procedural WebAudio | queued | — | — | — | — |
 | T7 | QA/polish/anti-bloat pass | queued | — | — | — | — |
@@ -47,7 +47,22 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T3 complete (commit pending)
+### 2026-10-04 — T4 complete (commit pending)
+- Model: `opencode/space-bunny-free#xhigh` · attempts: 1 (no fix round; two concerns ruled on) · 4.5/5.
+- Evidence: `tsc`/`build`/17 tests green; code read (rigs, shared geoms, eased posing, shortest-arc turns);
+  orchestrator browser run: chop → walk 8.2u → working; berries → 6.43u → working; rest → resting at
+  dist 0.45 (bug, see ruling); FPS avg 8.33 ms/frame, p95 9 ms, `calls 110 / tris 28.6k`; screenshots
+  `docs/validation/T04-*.png`, `T04-orch-check.png`.
+- Ruling: draw-call budget **raised 120 → 200**. Measured 110 calls at ~120 fps headroom; budget was an
+  arbitrary number, and instancing 8 animated characters would add real complexity for ~100 calls.
+  World geometry (trees/tufts/rocks) is already instanced per the brief. Cost if wrong: narrower perf
+  headroom for T6 — T7 re-checks with real numbers.
+- Ruling: resting villagers stood **inside** the campfire ring (arrival 0.45 < ring radius 0.92). This is
+  a sim bug → fix dispatched to T2's implementer (rest spot on ring r=1.6, DESIGN §3.1 updated).
+- Accepted as-is: per-hat-color material cache (geometry/skin/tunic shared); render-layer easing helpers
+  have no unit tests (browser behavior is the gate).
+
+### 2026-10-04 — T3 complete (commit f24bac1)
 - Model: `opencode/muse-spark-1.3-contributor-free#xhigh` · attempts: 1 (no fix round) · score 4.5/5.
 - Evidence: `tsc`/`build`/17 tests green; code read against brief — 6 instanced meshes (trunks, crowns,
   bushes, rocks, 420 tufts, 60 flowers), deterministic `hash01` variation, T1 placeholder fully removed.

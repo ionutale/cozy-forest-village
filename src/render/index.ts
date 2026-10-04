@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { GameState } from '../sim';
 import { PALETTE } from './palette';
 import { createEnvironment, type Environment } from './environment';
+import { createVillagers, type VillagersLayer } from './villagers';
 
 export interface RenderHandle {
   render(state: GameState, dtMs: number): void;
@@ -77,6 +78,7 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   scene.add(ground);
 
   let env: Environment | null = null;
+  let villagers: VillagersLayer | null = null;
 
   function resize(): void {
     const width = canvas.clientWidth || window.innerWidth;
@@ -98,12 +100,18 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   };
 
   return {
-    render(state: GameState, _dtMs: number): void {
+    render(state: GameState, dtMs: number): void {
       if (!env) {
         env = createEnvironment(state.nodes);
         scene.add(env.group);
       }
-      env.update(performance.now() / 1000);
+      if (!villagers) {
+        villagers = createVillagers();
+        scene.add(villagers.group);
+      }
+      const timeSec = performance.now() / 1000;
+      env.update(timeSec);
+      villagers.update(state, timeSec, dtMs);
       controls.update();
       renderer.render(scene, camera);
     },
@@ -111,6 +119,8 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
     dispose(): void {
       env?.dispose();
       env = null;
+      villagers?.dispose();
+      villagers = null;
       controls.dispose();
       disposeScene(scene);
       renderer.dispose();

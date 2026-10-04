@@ -95,7 +95,9 @@ sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are implementatio
 - Movement: straight line (no pathfinding), speed **2.2 units/s**; arrival when distance **≤ 0.45**.
 - Work: one yield per **1400 ms** of continuous work — `chop` → wood +1, `berries` → berries +1.
   Villagers keep working until reassigned; nodes never deplete in slice 1.
-- Rest: at the campfire; after **4000 ms** the villager becomes idle, `task` clears, one `rest-done` event.
+- Rest: the target is a spot on a ring of radius **1.6** around the campfire, angle = villager index ×
+  golden angle (2.399963 rad) — deterministic and spread out. After **4000 ms** of resting the villager
+  becomes idle, `task` clears, one `rest-done` event.
 - Task → node kind: chop → tree, berries → bush, rest → campfire. Target = nearest node of that
   kind (squared distance; ties broken by node id ascending).
 - `assignTask(state, id, null)` → idle, target cleared. Reassigning mid-walk retargets immediately.
