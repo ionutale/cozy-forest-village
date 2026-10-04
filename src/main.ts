@@ -1,11 +1,11 @@
 import './styles/tokens.css';
 import './styles/ui.css';
 import type { GameState } from './sim';
-import { assignTask, createInitialState, tick } from './sim';
+import { assignTask, buildStructure, createInitialState, tick } from './sim';
 import { initRender } from './render';
 import { initAudio } from './audio';
 import { initUI } from './ui';
-import { loadGame, saveGame, startAutosave } from './persist';
+import { clearSave, loadGame, saveGame, startAutosave } from './persist';
 
 declare global {
   interface Window {
@@ -23,6 +23,10 @@ if (!(canvas instanceof HTMLCanvasElement) || !(uiRoot instanceof HTMLElement)) 
   throw new Error('Boot failed: #world canvas and #ui root must exist');
 }
 
+// B7: set by resetVillage. A reload fires the pagehide handler below, and that handler saves —
+  // without this flag it would write the village straight back over the wipe.
+let wiped = false;
+
 const state = loadGame() ?? createInitialState();
 const stopAutosave = startAutosave(() => state);
 const render = initRender(canvas);
@@ -32,6 +36,17 @@ const ui = initUI(uiRoot, {
   assignTask: (villagerId, task) => assignTask(state, villagerId, task),
   // Panel-driven selection (card click, Escape, outside click) must light up the world ring.
   onSelect: (villagerId) => render.setSelected(villagerId),
+  // B7: spend resources on a ghost. The sim refuses unknown / already-built / unaffordable.
+  build: (structureId) => {
+    buildStructure(state, structureId);
+  },
+  // B7: two-step reset. Wipe the save, then reload so every layer boots from scratch.
+  resetVillage: () => {
+    wiped = true;
+    stopAutosave();
+    clearSave();
+    window.location.reload();
+  },
 });
 
 window.addEventListener('resize', render.resize);
@@ -60,9 +75,13 @@ canvas.addEventListener('pointerup', (ev) => {
   const wasDrag = dragging || moved > CLICK_SLOP_PX;
   dragging = false;
   if (wasDrag) return;
+  // B7 pick order: a villager wins over a structure under the same pixel (they overlap in the
+  // ring), and empty ground clears both. Exactly one of the two ids is ever non-null.
   const villagerId = render.pickVillager(ev.clientX, ev.clientY);
+  const structureId = villagerId ? null : render.pickStructure(ev.clientX, ev.clientY);
   render.setSelected(villagerId);
   ui.select(villagerId);
+  ui.selectStructure(structureId);
 });
 
 // Containment (M12): a throw inside one layer must not silently freeze the world. The first
@@ -95,7 +114,7 @@ requestAnimationFrame(frame);
 window.addEventListener('pagehide', () => {
   stopped = true; // set first, so no frame can run against a half-disposed layer
   stopAutosave();
-  saveGame(state); // final save before the layers go away
+  if (!wiped) saveGame(state); // final save before the layers go away, unless B7 just wiped it
   render.dispose();
   ui.dispose();
   audio.dispose();

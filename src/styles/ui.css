@@ -58,6 +58,63 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
   50% { transform: scale(1.06); }
 }
 
+/* Fuel pill (B7): the bar track has a fixed width, so a shrinking fill can never reflow the
+   pill. The four states are a warm-to-cold shift on the fill only. */
+.fuel-stack { display: flex; flex-direction: column; gap: 3px; width: 58px; }
+
+.fuel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+
+.fuel-bar { display: block; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+
+.fuel-fill {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 220ms ease, background-color 320ms ease, opacity 320ms ease;
+}
+
+.fuel-pill[data-res='fuel'] .pill-icon { color: var(--accent); }
+
+.fuel-pill[data-state='steady'] .fuel-fill { background: var(--wood); }
+
+.fuel-pill[data-state='dim'] .fuel-fill { background: var(--ink-soft); opacity: 0.6; }
+
+.fuel-pill[data-state='embers'] .fuel-fill { background: var(--ink-soft); opacity: 0.28; }
+
+.fuel-pill[data-state='dim'] .pill-icon,
+.fuel-pill[data-state='embers'] .pill-icon { color: var(--ink-soft); }
+
+/* Two-step reset (B7): ⟲ arms to "Sure?" for 3 s, then wipes. No modal, no panel. */
+.reset-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  align-self: center;
+  padding: 0;
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--paper-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: width 160ms ease, background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.reset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.reset-btn[data-armed='true'] {
+  width: auto;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 /* Zone 2 — villager panel */
 
 #villager-panel {
@@ -137,10 +194,11 @@ to { opacity: 1; transform: translateY(0); }
 .popover-title { margin: 0; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
 
 .task-btn {
-  padding: 8px 12px;
+  padding: 8px 6px;
   font: inherit;
+  font-size: 12.5px;
   font-weight: 700;
-  text-align: left;
+  text-align: center;
   color: var(--ink);
   background: var(--paper-2);
   border: 1px solid var(--border);
@@ -148,12 +206,15 @@ to { opacity: 1; transform: translateY(0); }
   cursor: pointer;
 }
 
+/* B7: six task buttons in a 2×3 grid. Labels wrap rather than clip if one runs long. */
+.task-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
 .task-btn:hover { border-color: var(--accent); }
 
 .task-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
 /* Stop is the way back to idle, not another task: quiet outline, no accent fill, so it never
-   competes with the three task buttons it sits under. */
+   competes with the five task buttons it sits beside. */
 .stop-btn {
   background: transparent;
   border-style: dashed;
@@ -163,7 +224,48 @@ to { opacity: 1; transform: translateY(0); }
 
 .stop-btn:hover { border-color: var(--border); }
 
-.stop-btn[aria-disabled='true'] { opacity: 0.45; pointer-events: none; }
+/* One rule for every disabled control in the popover: dimmed and not a click target. The
+   handler re-checks aria-disabled too, so keyboard activation cannot slip past it. */
+.task-btn[aria-disabled='true'],
+.build-btn[aria-disabled='true'] { opacity: 0.45; pointer-events: none; }
+
+/* Zone 3b — the structure card, inside the same popover: cost + Build while a ghost,
+   a status line once built. */
+
+#structure-card { display: flex; flex-direction: column; gap: 6px; }
+
+#structure-card[hidden] { display: none; }
+
+.structure-cost { display: flex; gap: 12px; margin: 0; min-height: 20px; align-items: center; }
+
+.cost-item { display: flex; align-items: center; gap: 4px; color: var(--ink); font-size: 13px; }
+
+.cost-icon { width: 16px; height: 16px; flex: none; }
+
+.cost-item b { font-variant-numeric: tabular-nums; }
+
+.structure-short { margin: 0; color: var(--berry); font-size: 12.5px; font-weight: 600; }
+
+.structure-short:empty,
+.structure-cost:empty,
+.structure-status:empty { display: none; }
+
+.structure-status { margin: 0; color: var(--ink-soft); font-size: 13px; font-weight: 700; }
+
+.build-btn {
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.build-btn[hidden] { display: none; }
+
+.build-btn:not([aria-disabled='true']):hover { filter: brightness(1.06); }
 
 #villager-panel::-webkit-scrollbar { width: 8px; }
 
