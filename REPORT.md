@@ -35,7 +35,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 24/24 ✅ · console clean ✅ · audio dormant pre-gesture ✅ | 4.5/5 |
 | B1 | Sim: fire + Tend fire + warmth | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 32/32 ✅ · 50-seed sweep 0 violations ✅ · keeper loop live ✅ | 4.5/5 |
 | B2 | Sim: build + cook/meals/eat + garden | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 41/41 ✅ · live: costs/meals/eat/garden exact ✅ | 4.5/5 |
-| B3 | Persist: localStorage save/load/autosave | queued | — | — | — | — |
+| B3 | Persist: localStorage save/load/autosave | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 49/49 ✅ · live: build → reload → restored ✅ · corrupt → fresh ✅ | 4.5/5 |
 | B4 | Render: fire visuals + warm light | queued | — | — | — | — |
 | B5 | Render: structures + ghosts + picking | queued | — | — | — | — |
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | queued | — | — | — | — |
@@ -88,7 +88,17 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B2 complete (commit pending)
+### 2026-10-04 — B3 complete (commit pending)
+- Model: `opencode/longcat-2.5-preview-free` · 1 attempt, 0 fix rounds · 4.5/5.
+- Evidence: 49/49 tests (8 new: round-trip, version mismatch, corrupt JSON, missing arrays, autosave
+  semantics with fake timers). Orchestrator live: built a pot → autosave wrote (pot built, wood 30) →
+  reload → restored (built, wood 30, tick continued); corrupt save seeded before first boot in a fresh
+  context → clean fresh village (fuel 70, tick 84), console clean.
+- Harness note: an earlier corrupt-save attempt looked like a miss — it was my test confound (the live
+  page's autosave re-wrote the file, or bfcache resumed the page). Clean-context rerun proves the code.
+- Persist is defensive by construction (never throws into the frame loop) and version-gated.
+
+### 2026-10-04 — B2 complete (commit f7425fa)
 - Model: `opencode/longcat-2.5-preview-free` · 1 attempt, 0 fix rounds · 4.5/5.
 - Evidence: 41/41 tests (9 new: ring shape, build spend/refuse/never-partial, cook loop + exact costs +
   auto-idle, eat gating by fire, 1190 ms fed boundary, garden timing). Orchestrator live: pot 40→20 wood,

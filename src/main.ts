@@ -5,6 +5,7 @@ import { assignTask, createInitialState, tick } from './sim';
 import { initRender } from './render';
 import { initAudio } from './audio';
 import { initUI } from './ui';
+import { loadGame, saveGame, startAutosave } from './persist';
 
 declare global {
   interface Window {
@@ -22,7 +23,8 @@ if (!(canvas instanceof HTMLCanvasElement) || !(uiRoot instanceof HTMLElement)) 
   throw new Error('Boot failed: #world canvas and #ui root must exist');
 }
 
-const state = createInitialState();
+const state = loadGame() ?? createInitialState();
+const stopAutosave = startAutosave(() => state);
 const render = initRender(canvas);
 const audio = initAudio();
 const ui = initUI(uiRoot, {
@@ -92,6 +94,8 @@ requestAnimationFrame(frame);
 // Tear every layer down when the page goes away: WebGL context, DOM listeners, AudioContext.
 window.addEventListener('pagehide', () => {
   stopped = true; // set first, so no frame can run against a half-disposed layer
+  stopAutosave();
+  saveGame(state); // final save before the layers go away
   render.dispose();
   ui.dispose();
   audio.dispose();
