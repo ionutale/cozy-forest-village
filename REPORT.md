@@ -29,8 +29,10 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | T4 | Villagers (primitives + hats + procedural anim) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 17/17 tests ✅ · browser behavior + FPS ✅ | 4.5/5 |
 | T5 | Wiring sim ↔ render ↔ UI (full loop) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 fix | tsc/build ✅ · 19/19 ✅ · browser: select/clear/drag/pulse ✅ | 4.5/5 |
 | T6 | Ambient life + procedural WebAudio | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 19/19 ✅ · browser: motion ✅ · calls 117 ✅ · console clean ✅ | 4.5/5 |
-| T7 | QA/polish/anti-bloat pass + final review | in progress | `opencode/mimo-v2.6-flash-free` | — | — | — |
-| T7 | QA/polish/anti-bloat pass | queued | — | — | — | — |
+| T7 | Final review + 20 proposals | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 0 Critical · 6 Important · 6 Minor; evidence-backed | 5/5 |
+| F1 | Pre-playtest fixes: sim (I1, I3, I6, M7) | in progress | `opencode/longcat-2.5-preview-free` | — | — | — |
+| F2 | Pre-playtest fixes: UI/render (I2, M10, M11, M12) | queued | — | — | — | — |
+| F3 | Pre-playtest fixes: audio/env (I4, I5, M8) | queued | — | — | — | — |
 
 ## Log
 
@@ -48,7 +50,25 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — T6 complete (commit pending)
+### 2026-10-04 — T7 review (commit pending)
+- Model: `opencode/mimo-v2.6-flash-free` (fresh family, read-only) · delivered 0 Critical / 6 Important /
+  6 Minor + 20 improvement proposals. Score 5/5 — measured claims (`node -e` re-runs), file:line evidence,
+  clean sections stated explicitly. Report: `docs/tasks/T07-report.md`.
+- Findings accepted: I1 villagers stack on one tree (measured pair 0.072 u apart) · I2 no way to stop a
+  villager from the UI · I3 rest paths cross the flames (min distance 0.22 u) · I4 work SFX clatter
+  (measured ~4–5 knocks/s) · I5 audio voices never disconnected · I6 `tick(Infinity)` hangs.
+  Minors: M7 same-task click wipes progress · M8 stale palette listing + hardcoded disc colour ·
+  M9 duplicated `hash01`/`mulberry32` + dead export · M10 shadows: 96 of 117 calls are villagers ·
+  M11 pulse throb + card label never shows travel state · M12 no frame-loop containment, dead dispose
+  paths, duplicate ledger row.
+- Rulings: **I3** bends "straight line (no pathfinding)" → adopted the single-bend approach arc
+  (r=2.2 bisector) in DESIGN §3.1; cost if wrong: slightly longer rest walks, revertible. **I2** adopted
+  as a "Stop" button inside the existing popover zone + same-task no-op guard (M7). **M9 parked** —
+  dedupe refactor touches four files for no player value pre-playtest; kept as an improvement candidate.
+  **M8** DESIGN §4 updated here; the `disc` key lands with F3.
+- Fix batches dispatched (pre-playtest): F1 sim · F2 UI/render · F3 audio/env.
+
+### 2026-10-04 — T6 complete (commit 913f2b0)
 - Models: `opencode/longcat-2.5-preview-free` → provider rejection "Rate limit exceeded" (no work done);
   `opencode/muse-spark-1.3-contributor-free#xhigh` → DONE, 1 attempt, 0 fix rounds · 4.5/5.
 - Evidence: `tsc`/`build`/19 tests green; code read — ambient = 7 draws (birds 3, butterflies 3, motes 1),
