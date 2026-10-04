@@ -22,4 +22,6 @@ export const PALETTE = {
   mote: '#f6e7c6',
   skin: '#e2b58d',
   tunic: '#b5895f',
+  soil: '#6a4c37', // B5: tilled earth for the garden patch
+  cauldron: '#6b6660', // B5: muted dark iron for the cooking pot
 } as const;

@@ -4,6 +4,7 @@ import type { GameState } from '../sim';
 import { PALETTE } from './palette';
 import { createEnvironment, type Environment } from './environment';
 import { createAmbient, type AmbientLayer } from './ambient';
+import { createStructures, type StructuresLayer } from './structures';
 import { createVillagers, type VillagersLayer } from './villagers';
 
 export interface RenderHandle {
@@ -16,6 +17,8 @@ export interface RenderHandle {
   setSelected(villagerId: string | null): void;
   /** Project a villager to screen client px (testability + UI anchoring). */
   projectVillager(villagerId: string): { x: number; y: number } | null;
+  /** B5: screen-space hit test against structure meshes (built or ghost). */
+  pickStructure(clientX: number, clientY: number): string | null;
 }
 
 declare global {
@@ -87,6 +90,7 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   let env: Environment | null = null;
   let villagers: VillagersLayer | null = null;
   let ambientLayer: AmbientLayer | null = null;
+  let structures: StructuresLayer | null = null;
   let selectedId: string | null = null; // kept here so the ring survives layer re-creation
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -125,10 +129,17 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
         ambientLayer = createAmbient();
         scene.add(ambientLayer.group);
       }
+      if (!structures) {
+        structures = createStructures();
+        scene.add(structures.group);
+      }
       const timeSec = performance.now() / 1000;
-      env.update(timeSec);
+      // B4's Environment takes the live fire state; without it the flame falls back to the
+      // `__cozy` hook, so pass the real thing.
+      env.update(timeSec, state.fire);
       villagers.update(state, timeSec, dtMs);
       ambientLayer.update(state, timeSec, dtMs);
+      structures.update(state, timeSec);
       villagers.setSelected(selectedId);
       controls.update();
       renderer.render(scene, camera);
@@ -146,6 +157,14 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       selectedId = villagerId;
       villagers?.setSelected(selectedId);
     },
+    pickStructure(clientX: number, clientY: number): string | null {
+      if (!structures) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return null;
+      ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return structures.pick(raycaster);
+    },
     projectVillager(villagerId: string): { x: number; y: number } | null {
       if (!villagers || !villagers.project(villagerId, camera, scratch)) return null;
       const rect = canvas.getBoundingClientRect();
@@ -161,6 +180,8 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       villagers = null;
       ambientLayer?.dispose();
       ambientLayer = null;
+      structures?.dispose();
+      structures = null;
       controls.dispose();
       disposeScene(scene);
       renderer.dispose();

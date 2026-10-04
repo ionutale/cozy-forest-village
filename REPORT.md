@@ -37,7 +37,7 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B2 | Sim: build + cook/meals/eat + garden | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 41/41 ✅ · live: costs/meals/eat/garden exact ✅ | 4.5/5 |
 | B3 | Persist: localStorage save/load/autosave | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | tsc/build ✅ · 49/49 ✅ · live: build → reload → restored ✅ · corrupt → fresh ✅ | 4.5/5 |
 | B4 | Render: fire visuals + warm light | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · fuel 70/20/0 screenshots ✅ · calls 86 ✅ | 4.5/5 |
-| B5 | Render: structures + ghosts + picking | queued | — | — | — | — |
+| B5 | Render: structures + ghosts + picking | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | tsc/build ✅ · 49/49 ✅ · pick 7/7 (cross-validated probe) ✅ · calls 120/154 ✅ | 5/5 |
 | B6 | Render: villager poses (carry/stir/eat/shiver/hearts) | queued | — | — | — | — |
 | B7 | UI: fuel pill, task grid, build cards, reset | queued | — | — | — | — |
 | B8 | Audio: crackle + new SFX | queued | — | — | — | — |
@@ -88,7 +88,20 @@ one remaining build warning (chunk > 500 kB, three.js).
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-04 — B4 complete (commit pending)
+### 2026-10-04 — B5 complete (dispatch tool reported an abort after the work had landed; validated anyway)
+- Model: `opencode/space-bunny-free#xhigh` · 1 attempt, 0 fix rounds · 5/5.
+- Deliverable: `src/render/structures.ts` (six models + ghosts from one shared code path, bowls/steam/
+  sprout-growth/lantern breath as pure functions of state+time), `pickStructure` on the handle with a
+  visibility filter (three.js raycasts ignore `visible`), `env.update(timeSec, state.fire)` integration
+  fix. Screenshots: ghosts + all-built (`docs/validation/B5-*.png`).
+- Measured: calls 120 fresh / 154 all-built (<200); picking 7/7 ghosts and built, probe projection
+  cross-checked against `__cozy.projectVillager` to 0.00 px; sky/grass clicks null; console clean.
+- Accepted deviations: structures face the campfire; two palette keys (`soil`, `cauldron`); ghost pot
+  hides bowls/steam; ghost colour = `flowerWhite` (palette has no `paper` key — noted again for polish).
+- Gaps carried forward: B5 has no unit tests (render layer, browser-validated); end-to-end
+  ghost→Build via the real `buildStructure` path lands in B7's validation.
+
+### 2026-10-04 — B4 complete (commit c57bed2)
 - Model: `opencode/muse-spark-1.3-contributor-free#xhigh` · 1 attempt, 0 fix rounds · 4.5/5.
 - Evidence: flame scale `0.25 + 0.75·ratio` × gentle two-sine flicker, colour lerp ember→fire, one
   warm point light `0.25 + 1.15·ratio` (distance 14, no shadows), 16-dot ember bed fading in as fuel
