@@ -387,3 +387,271 @@ a 0.09 u accent band over a 0.09 u halo, and no hard edge or full disc.
 4. Round-1 concerns still open and unchanged: `PALETTE.accent` / `PALETTE.paper` token ruling;
    draw calls at 105 against T04's older `< 120` budget (T06 pressure); resting villagers inside the
    campfire ring; the `select()`-before-first-render path. Dev server on :5177 stopped, port free.
+
+---
+
+# Round 2 — pre-playtest fix batch (I2, M10, M11a, M11b, M12)
+
+Status: **DONE**. All five findings fixed and verified live. Still uncommitted.
+
+Note: T05 (including round 1) was committed as `f456266`, and T06/T07 landed in between, so this
+round started from a tree that now has `src/audio/` and `src/render/ambient.ts`. `main.ts` already
+carried T06's `audio.update(state, dt)` call and that line is preserved verbatim inside the new
+try/catch. Round 1's `onSelect` and two-tone ring were confirmed still present in `HEAD` before I
+started (`onSelect` ×3, `ringGroup` ×7).
+
+## Files changed in round 2
+
+| File | Lines | Change |
+|---|---|---|
+| `src/ui/index.ts` | 264 (+29) | Stop button, pulse throttle, travel-state card labels |
+| `src/styles/ui.css` | 180 (+13) | `.stop-btn` neutral + disabled styling |
+| `src/main.ts` | 94 (+20) | frame-loop containment, `pagehide` teardown |
+| `src/render/villagers.ts` | 252 (+2) | torso + head are the only shadow casters |
+
+`src/render/index.ts` (170, T06-modified) was **not** touched — no finding needed it.
+`git diff --stat` is now 4 files, +80/−19, all inside the T05 allow-list. No commit.
+
+## F2.1 — Stop button (I2)
+
+A fourth button in the existing task popover, so the player can always return a villager to idle:
+
+```html
+<button class="task-btn stop-btn" type="button" data-task="stop" aria-disabled="true">Stop</button>
+```
+
+- `onPopoverClick` branches on `data-task === 'stop'` first and calls
+  `actions.assignTask(selectedId, null)` — the sim's existing "unassign" path, no new sim code.
+- The handler re-checks `aria-disabled` before acting. CSS `pointer-events: none` already blocks the
+  mouse, but a `<button>` is still keyboard-activatable, so the guard is what actually makes the
+  disabled state honest.
+- `syncActiveButtons` now also drives `stopBtn.setAttribute('aria-disabled', task === null ? 'true' : 'false')`,
+  so it flips in the same frame the task changes, from the same source of truth.
+- Styling is deliberately quiet: transparent background, `border-style: dashed`,
+  `color: var(--ink-soft)`, `font-weight: 600`, and `.stop-btn:hover` keeps the plain border instead
+  of the accent hover the task buttons use. Disabled is `opacity: 0.45; pointer-events: none`.
+  It can never pick up `.active` — `syncActiveButtons` compares `dataset.task` against the villager's
+  task, and `'stop'` is never a `TaskId`.
+- Still no new zone: `#task-popover` is nested inside `#villager-panel`, and
+  `document.querySelectorAll('#ui > *').length === 2` (`#hud`, `#villager-panel`) before and after.
+  The popover now holds 4 `.task-btn` elements.
+
+Verified:
+
+| Check | Result |
+|---|---|
+| Stop while working | `aria-disabled="false"`, `pointer-events: auto`, styling `dashed` + `rgba(0,0,0,0)` |
+| Press Stop (Maple, chopping) | `{ state: 'idle', task: null }`, card label back to `Idle` |
+| Wood after Stop | `woodDelta = 0` over 3 s — the counters really stop |
+| Stop while idle | `aria-disabled="true"`, computed `opacity 0.45` |
+| Stop dispatched directly while disabled | no-op, sim keeps ticking |
+| Select an idle villager | Stop already disabled |
+| Assign `rest` then wait | label `Walking…` → `Resting`, Stop enabled, `Rest` the active button |
+
+`docs/validation/T05-stop-and-labels.png` shows the popover with three accent-eligible task buttons
+and the dashed Stop underneath, plus the label column in its new form.
+
+## F2.2 — yield pulse throttle (M11a)
+
+`PULSE_THROTTLE_MS = 600` with a `lastPulseAt` map keyed per resource. The counter update above it is
+untouched, so **only the pulse is throttled**. The throttle permits a pulse but does not schedule one,
+so with chop yields every ~250 ms the observed cadence settles at one pulse per ~700 ms rather than
+one per yield.
+
+Measured with 6 villagers chopping, over a 5.0 s window:
+
+| | |
+|---|---|
+| `chop` events | 20 (≈4/s) |
+| `.yield-pulse` class additions | **7** (≈1.4/s) |
+| Unthrottled would have been | 20 |
+
+Counters confirmed still instant: over a separate 3 s window, 12 `chop` events produced
+`woodDelta === 12`.
+
+## F2.3 — card label shows travel state (M11b)
+
+New `cardLabel(villager)` helper replaces the old `villager.task ? TASK_LABELS[task] : 'Idle'`:
+
+| `villager.state` | Label |
+|---|---|
+| `walking` | `Walking…` |
+| `working` | the task label (`Chop wood` / `Gather berries`) |
+| `resting` | `Resting` |
+| `idle` | `Idle` |
+
+It reuses the existing `.task-label` element and the existing "only write when changed" guard, so no
+new DOM and no extra writes. The eight-card label column reads correctly in the screenshot:
+`Maple/Birch/Fern/Pip = Chop wood`, `Hazel = Gather berries`, `Juniper = Idle`, `Moss = Resting`,
+`Clover = Idle`. Transition verified by polling until the label flipped and confirming the sim state
+at that moment: `Walking…` while `state === 'walking'`, `Chop wood` once `state === 'working'`.
+
+Note this changes the meaning of a subtle existing behaviour: a villager with a `rest` task now
+reads `Resting` while resting and `Walking…` on the way, instead of showing `Rest` throughout. That
+is the point of the finding.
+
+## F2.4 — shadow draw calls (M10)
+
+`castShadow` moved out of the blanket `root.traverse` and onto the two meshes that matter:
+
+```ts
+// Shadow casters are the torso and head only (M10): letting arms, hat and pom cast too
+// cost ~32 shadow draws for a silhouette difference nobody can see at play distance.
+torso.castShadow = true;
+...
+const face = new THREE.Mesh(headGeo, skinMat);
+face.castShadow = true;
+```
+
+The traverse keeps only the `userData.villagerId` tagging that selection depends on.
+
+Measured A/B rather than estimated — I reverted the change, reloaded, sampled 30 frames, restored it,
+reloaded, sampled again, all at the default camera with 8 villagers:
+
+| | `__cozyRender.info().calls` |
+|---|---|
+| All 6 meshes casting (before) | **117** (min 117, max 117) |
+| Torso + head only (after) | **85** (min 85, max 85) |
+
+−32 draws, exactly the predicted figure. Visual check: `docs/validation/T05-shadows-before.png` and
+`T05-shadows-after.png` are the same framing at the same zoom. Villagers still drop clear soft
+shadows in both; the only difference is that the hat cone, pom and arm nubs no longer add small
+bumps to the shadow's edge. At play distance the two are indistinguishable, which is what "barely
+noticeable" asks for.
+
+## F2.5 — frame containment and dispose wiring (M12)
+
+```ts
+let frameErrorLogged = false;
+function frame(now: number): void {
+  try {
+    const dt = Math.min(now - last, 100);
+    last = now;
+    tick(state, dt); render.render(state, dt); audio.update(state, dt); ui.render(state);
+  } catch (err) {
+    if (!frameErrorLogged) {
+      frameErrorLogged = true;
+      console.error('[cozy] frame loop failed; later frame errors are not logged', err);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('pagehide', () => { render.dispose(); ui.dispose(); audio.dispose(); });
+```
+
+`requestAnimationFrame` sits **outside** the try, so a throw can never stop the loop, and `last` is
+updated before anything can throw, so `dt` stays sane.
+
+Verified by injecting a real fault: with 3 villagers chopping I removed the `.pill-value` node that
+`ui.render()` requires on every counter change, so the next chop yield made the frame body throw
+`UI element missing: #hud [data-res="wood"]`:
+
+| | |
+|---|---|
+| Threw | yes |
+| `console.error` calls | **1** — one-shot flag held across 2 more seconds of further yields |
+| Message | `[cozy] frame loop failed; later frame errors are not logged` |
+| Loop survived | yes — `tick` kept advancing |
+| Rendering continued | yes — `calls` still reported |
+
+`pagehide` verified by dispatching a real `PageTransitionEvent`: `window.__cozyRender` went from
+`object` to `undefined`, `#ui` children 2 → 0, `.villager-card` count 8 → 0. So all three layers
+dispose.
+
+## Console
+
+Clean during normal play: 8 villagers working, selection changes, Stop presses, pulse and label
+transitions — only the two `[vite] connecting… / connected.` debug lines. No errors or warnings.
+
+## Deviations (round 2)
+
+1. **`Stop` renders `aria-disabled` rather than the native `disabled` attribute.** A natively
+   disabled button drops out of the tab order and loses its tooltip/hover affordance entirely;
+   `aria-disabled` + `pointer-events: none` + reduced opacity dims it while keeping it discoverable
+   in the popover, and the handler re-checks the attribute so keyboard activation cannot bypass it.
+   Flagging in case the orchestrator prefers the native attribute for accessibility reasons.
+2. **The pulse throttle permits rather than schedules.** A permitted pulse still only happens when a
+   yield actually arrives, so the real cadence is ~700 ms with 6 choppers rather than exactly 600 ms.
+   That is the intended "at most once per ~600 ms" reading and avoids a timer, but it means the
+   stated bound is an upper bound on frequency, not a fixed period.
+3. **`console.error` after the first frame failure is suppressed entirely**, per the "first error
+   only" instruction. A genuinely new and different failure later in the session would therefore be
+   silent. The one-shot flag is deliberately not time-boxed. Easy to relax if the orchestrator
+   prefers "log the first error of each distinct message".
+4. **`.stop-btn` reuses the `.task-btn` class** rather than introducing a new button type, to keep
+   the popover's spacing, radius, font and focus ring inherited. Only three properties are overridden.
+
+## Known gaps / concerns for the orchestrator
+
+1. **`pagehide` disposes the layers but the frame loop keeps running**, and this is now the one place
+   where M12's own teardown argues with M12's containment. Two concrete symptoms, both observed:
+   - After `pagehide`, the next frame calls `ui.render()` on an emptied `#ui`, which throws
+     `UI element missing: #hud [data-res="wood"]` — caught by the new try/catch and logged once. So
+     containment is doing its job, but the log is noise produced by our own teardown.
+   - `render.dispose()` calls `renderer.dispose()`, yet `render.render()` recreates `env` and
+     `villagers` on the next frame because it nulls them; three.js then logged
+     `GL_INVALID_OPERATION: glTexStorage2D: Texture is immutable` while rendering against a disposed
+     renderer.
+
+   On a normal unload nobody sees either. On a **bfcache restore** (`pagehide` with
+   `event.persisted === true`) the page comes back and would be rendering on a disposed renderer. The
+   remedy is one line — a `disposed` flag in `main.ts` that skips `requestAnimationFrame(frame)` after
+   teardown — but that stops the game loop, which is a behaviour change beyond what this round was
+   told to make, so I am flagging rather than doing it. **Recommend a ruling.**
+2. **No automated test covers any of the five fixes.** The pulse throttle and `cardLabel` are pure
+   functions of `(state, now)` and the Stop contract is a two-line branch, yet all five are verified
+   only by the live browser runs above. The pulse throttle in particular is the kind of thing that
+   silently regresses if someone later moves the counter update inside the throttle. Verifying them
+   properly needs the allow-list widened for a `src/ui/*.test.ts`.
+3. **File sizes keep growing against the ~220 line target**: `ui/index.ts` is now 264 and
+   `villagers.ts` 252. Every finding in this batch was additive, so the overage reported in rounds 0
+   and 1 has grown. `ui/index.ts` is now over by 20% and is the file most likely to need splitting
+   (popover concerns vs card concerns) if the target is meant to be enforced.
+4. **Carried over from earlier rounds, still open:** the `PALETTE.accent` / `PALETTE.paper` token
+   ruling; draw calls now 85–89 against T04's older `< 120` budget, which M10 has bought real
+   headroom for T07+; resting villagers standing inside the campfire ring; the
+   `select()`-before-first-`render()` path verified by construction only.
+5. Dev server started on :5177 for validation has been stopped and the port confirmed free.
+
+### Round 2 addendum — teardown ruling (M12 concern 1 closed)
+
+The orchestrator ruled on the gap I flagged above: dispose without stopping the loop. Fixed in
+`src/main.ts` only (+11 lines, 94 → 105). No other file touched.
+
+```ts
+let stopped = false;
+function frame(now: number): void {
+  if (stopped) return;              // halt before any layer is touched again
+  try { /* tick / render / audio.update / ui.render */ }
+  …
+  requestAnimationFrame(frame);
+}
+
+window.addEventListener('pagehide', () => {
+  stopped = true;                   // set first, so no frame can see a half-disposed layer
+  render.dispose(); ui.dispose(); audio.dispose();
+});
+
+window.addEventListener('pageshow', () => {
+  if (stopped) window.location.reload();   // bfcache restore: nothing to restore, boot clean
+});
+```
+
+The guard sits at the very top of `frame()`, above the try, so a stopped loop touches nothing and
+schedules nothing.
+
+Verified in the browser (fresh reload, default camera):
+
+| Check | Result |
+|---|---|
+| `pagehide` halts the loop | `tick` **129 → 129**, unchanged across 120 frames + 800 ms + 30 frames |
+| `pagehide` disposes all three | `__cozyRender` `object` → `undefined`; `#ui` children 2 → 0; cards 8 → 0 |
+| **Console after `pagehide` + many frames** | **clean** — only the two `[vite]` debug lines |
+| The two round-2 symptoms | `[cozy] frame loop failed: UI element missing: #hud [data-res="wood"]` — **gone**; three.js `GL_INVALID_OPERATION: glTexStorage2D: Texture is immutable` — **gone** |
+| `pageshow` after a stop reloads | sentinel set on `window` before `pageshow` is **gone** afterwards, so a real navigation ran |
+| Reboot is healthy | fresh document (age 13.6 s), `__cozyRender` back, 8 cards, `calls 85`, ticking at 61/s |
+| No reload loop | the fresh document's own `pageshow` fires with `stopped === false`, so it does not re-reload — it ran 13.6 s and 810 ticks without looping |
+
+No new console noise, no dependency change, no `any`. Commands: `pnpm exec tsc --noEmit` exit 0,
+`pnpm build` exit 0, `pnpm test` exit 0 (3 files, 24 tests). Dev server on :5177 stopped, port free.

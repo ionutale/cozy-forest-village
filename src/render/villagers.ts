@@ -123,10 +123,15 @@ export function createVillagers(): VillagersLayer {
     const torso = new THREE.Mesh(bodyGeo, tunicMat);
     torso.position.y = BODY_Y;
     torso.scale.set(1, 1.45, 1);
+    // Shadow casters are the torso and head only (M10): letting arms, hat and pom cast too
+    // cost ~32 shadow draws for a silhouette difference nobody can see at play distance.
+    torso.castShadow = true;
     body.add(torso);
     const head = new THREE.Group();
     head.position.y = HEAD_Y;
-    head.add(new THREE.Mesh(headGeo, skinMat));
+    const face = new THREE.Mesh(headGeo, skinMat);
+    face.castShadow = true;
+    head.add(face);
     const mats = hatMaterials(villager.hatColor);
     const hat = new THREE.Mesh(hatGeo, mats.cone);
     hat.position.y = HAT_Y - HEAD_Y;
@@ -139,9 +144,7 @@ export function createVillagers(): VillagersLayer {
     body.add(armL, armR);
     // T05: tag every mesh so a raycast hit resolves back to the villager it belongs to.
     root.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return;
-      obj.castShadow = true;
-      obj.userData.villagerId = villager.id;
+      if (obj instanceof THREE.Mesh) obj.userData.villagerId = villager.id;
     });
     root.position.set(villager.pos.x, 0, villager.pos.z);
     root.rotation.y = villager.facing;

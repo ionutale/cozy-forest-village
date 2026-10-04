@@ -63,16 +63,44 @@ canvas.addEventListener('pointerup', (ev) => {
   ui.select(villagerId);
 });
 
+// Containment (M12): a throw inside one layer must not silently freeze the world. The first
+// failure is logged once and the loop keeps scheduling, so the game stays observable.
+let frameErrorLogged = false;
+// Teardown (M12): the layers below are disposed once and never rebuilt, so the loop must stop
+// scheduling or the next frame would re-create them against a disposed renderer.
+let stopped = false;
 let last = performance.now();
 function frame(now: number): void {
-  const dt = Math.min(now - last, 100);
-  last = now;
-  tick(state, dt);
-  render.render(state, dt);
-  audio.update(state, dt);
-  ui.render(state);
+  if (stopped) return;
+  try {
+    const dt = Math.min(now - last, 100);
+    last = now;
+    tick(state, dt);
+    render.render(state, dt);
+    audio.update(state, dt);
+    ui.render(state);
+  } catch (err) {
+    if (!frameErrorLogged) {
+      frameErrorLogged = true;
+      console.error('[cozy] frame loop failed; later frame errors are not logged', err);
+    }
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Tear every layer down when the page goes away: WebGL context, DOM listeners, AudioContext.
+window.addEventListener('pagehide', () => {
+  stopped = true; // set first, so no frame can run against a half-disposed layer
+  render.dispose();
+  ui.dispose();
+  audio.dispose();
+});
+
+// Restored from the back/forward cache means those layers are gone for good. Slice 1 has no save
+// system, so there is nothing to restore — take a clean boot instead.
+window.addEventListener('pageshow', () => {
+  if (stopped) window.location.reload();
+});
 
 window.__cozy = { getState: () => state, projectVillager: (id) => render.projectVillager(id) };

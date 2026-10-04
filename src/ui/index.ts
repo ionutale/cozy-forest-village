@@ -1,4 +1,4 @@
-import type { GameState, TaskId } from '../sim';
+import type { GameState, TaskId, Villager } from '../sim';
 
 export interface UIActions {
   assignTask(villagerId: string, task: TaskId | null): void;
@@ -19,6 +19,9 @@ const TASK_LABELS: Record<TaskId, string> = {
   berries: 'Gather berries',
   rest: 'Rest',
 };
+
+/** Minimum gap between two yield pulses on the same HUD pill (M11a). */
+const PULSE_THROTTLE_MS = 600;
 
 const ICONS = {
   wood: `<svg class="pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="8" width="14" height="8" rx="4"/><path d="M17 9v6"/><path d="M7 12h3"/></svg>`,
@@ -56,6 +59,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
           (task) =>
             `<button class="task-btn lift" type="button" data-task="${task}">${TASK_LABELS[task]}</button>`,
         ).join('')}
+        <button class="task-btn stop-btn" type="button" data-task="stop" aria-disabled="true">Stop</button>
       </div>
     </aside>
   `;
@@ -63,11 +67,15 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const list = must<HTMLElement>(root, '#villager-list');
   const popover = must<HTMLElement>(root, '#task-popover');
   const popoverTitle = must<HTMLElement>(popover, '.popover-title');
+  const stopBtn = must<HTMLButtonElement>(popover, '.stop-btn');
   const cards = new Map<string, CardParts>();
   let selectedId: string | null = null;
   // A select() before the first render() has nothing to read the villager from yet, so
   // park the id and apply it as soon as cards exist.
   let pendingSelection: string | null | undefined;
+  // Yield pulses are re-armed at most this often per pill, so a busy forest whispers
+  // instead of throbbing (M11a). Counters are never throttled.
+  const lastPulseAt = new Map<string, number>();
 
   /** Silent reset of the card + popover. Never notifies, so it is safe to reuse. */
   function clearSelectionVisuals(): void {
@@ -88,6 +96,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     for (const btn of popover.querySelectorAll<HTMLButtonElement>('.task-btn')) {
       btn.classList.toggle('active', btn.dataset.task === task);
     }
+    // Stop is the inverse of a task: nothing to stop while the villager already has none.
+    stopBtn.setAttribute('aria-disabled', task === null ? 'true' : 'false');
   }
 
   function openPopover(card: CardParts, state: GameState, notify: boolean): void {
@@ -125,6 +135,12 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const onPopoverClick = (ev: Event): void => {
     const target = ev.target instanceof Element ? ev.target.closest('.task-btn') : null;
     if (!(target instanceof HTMLButtonElement) || !selectedId) return;
+    if (target.dataset.task === 'stop') {
+      // aria-disabled is enforced in CSS too, but the guard keeps keyboard activation honest.
+      if (target.getAttribute('aria-disabled') === 'true') return;
+      actions.assignTask(selectedId, null);
+      return;
+    }
     const task = target.dataset.task as TaskId | undefined;
     if (!task) return;
     actions.assignTask(selectedId, task);
@@ -175,6 +191,14 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   document.addEventListener('click', onDocumentClick);
   document.addEventListener('keydown', onKeyDown);
 
+  /** Card label: what the villager is doing *now*, not what they were told to do (M11b). */
+  function cardLabel(villager: Villager): string {
+    if (villager.state === 'walking') return 'Walking…';
+    if (villager.state === 'resting') return 'Resting';
+    if (villager.state === 'working' && villager.task) return TASK_LABELS[villager.task];
+    return 'Idle';
+  }
+
   return {
     render(state: GameState): void {
       if (!cardsBuilt) {
@@ -196,17 +220,22 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
           text.textContent = value;
         }
         if (state.events.some((ev) => (res === 'wood' ? ev.type === 'chop' : ev.type === 'gather'))) {
-          // Yield pulse: re-adding the class restarts the animation, and transform
-          // animation cannot shift layout.
-          pill.classList.remove('yield-pulse');
-          void pill.offsetWidth; // force reflow so the same class re-triggers
-          pill.classList.add('yield-pulse');
+          // Yield pulse, throttled per pill: with a few choppers yielding every 1400 ms the
+          // events arrive several times a second, which made the pill throb permanently.
+          const now = performance.now();
+          if (now - (lastPulseAt.get(res) ?? -Infinity) >= PULSE_THROTTLE_MS) {
+            lastPulseAt.set(res, now);
+            // Re-adding the class restarts the animation, and transform cannot shift layout.
+            pill.classList.remove('yield-pulse');
+            void pill.offsetWidth; // force reflow so the same class re-triggers
+            pill.classList.add('yield-pulse');
+          }
         }
       }
       for (const villager of state.villagers) {
         const parts = cards.get(villager.id);
         if (!parts) continue;
-        const label = villager.task ? TASK_LABELS[villager.task] : 'Idle';
+        const label = cardLabel(villager);
         if (parts.label.textContent !== label) parts.label.textContent = label;
       }
       if (selectedId) syncActiveButtons(state);

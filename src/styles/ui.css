@@ -152,6 +152,19 @@ to { opacity: 1; transform: translateY(0); }
 
 .task-btn.active { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 
+/* Stop is the way back to idle, not another task: quiet outline, no accent fill, so it never
+   competes with the three task buttons it sits under. */
+.stop-btn {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.stop-btn:hover { border-color: var(--border); }
+
+.stop-btn[aria-disabled='true'] { opacity: 0.45; pointer-events: none; }
+
 #villager-panel::-webkit-scrollbar { width: 8px; }
 
 #villager-panel::-webkit-scrollbar-track { background: transparent; }
