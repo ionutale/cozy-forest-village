@@ -11,7 +11,8 @@
 import type { GameState, Structure, TaskId } from '../sim';
 import { buildCards, syncCards, type CardParts } from './cards';
 import {
-  DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState, villageLine,
+  DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState,
+  firstFavorDoneVillagerId, hintRecomputeDue, villageLine,
 } from './derive';
 import { bindRefs, uiMarkup } from './markup';
 import { createStructureCard } from './structure-card';
@@ -288,25 +289,25 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
 
       const now = performance.now();
       // Batch 4 thank-you window: a `favor-done` opens THANK_YOU_MS of "is delighted!" in the
-      // hint. The hint is made due on the window's open and close edges so the moment is never
-      // missed between the existing 10 s recomputes — the recompute cadence itself is unchanged.
-      for (const ev of state.events) {
-        if (ev.type !== 'favor-done') continue;
-        const done = ev.villagerId ? state.villagers.find((v) => v.id === ev.villagerId) : undefined;
-        if (!done) continue;
-        thanksName = done.name;
-        thanksUntil = now + THANK_YOU_MS;
-        hintDueAt = 0;
+      // hint. M1: when two completions land in one batch the *first* event wins, so the window
+      // belongs to one requester deterministically instead of the last overwriting the other.
+      const thanksBefore = thanksName;
+      const doneId = firstFavorDoneVillagerId(state.events);
+      if (doneId !== null) {
+        const done = state.villagers.find((v) => v.id === doneId);
+        if (done) {
+          thanksName = done.name;
+          thanksUntil = now + THANK_YOU_MS;
+        }
       }
-      if (thanksName !== null && now >= thanksUntil) {
-        thanksName = null;
-        hintDueAt = 0;
-      }
+      if (thanksName !== null && now >= thanksUntil) thanksName = null;
 
       // B1 rotating hint: recompute on a slow clock, then write only on a real change — two
       // guards, so the line cannot flicker and the DOM is untouched on every other frame.
-      // The clock is wall time because UIHandle.render(state) carries no dtMs (DESIGN §3).
-      if (now >= hintDueAt) {
+      // M6: the thanks window's open and close edges also force an immediate recompute — the
+      // window is shorter than the cadence, so waiting could miss "delighted!" entirely. The
+      // clock is wall time because UIHandle.render(state) carries no dtMs (DESIGN §3).
+      if (hintRecomputeDue(now, hintDueAt, thanksBefore, thanksName)) {
         hintDueAt = now + HINT_INTERVAL_MS;
         const line = villageLine(state, thanksName);
         if (line !== lastHint) {

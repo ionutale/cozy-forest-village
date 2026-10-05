@@ -4,7 +4,7 @@
 // in their own module.
 
 import { describe, expect, it } from 'vitest';
-import type { FavorProgress, FavorWant, GameState, Villager } from '../sim';
+import type { FavorProgress, FavorWant, GameState, SimEvent, Villager } from '../sim';
 import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
 import {
   DEFAULT_HINT,
@@ -16,6 +16,8 @@ import {
   favorText,
   fireState,
   firstById,
+  firstFavorDoneVillagerId,
+  hintRecomputeDue,
   secondsToBerry,
   villageLine,
 } from './derive';
@@ -261,6 +263,45 @@ describe('villageLine — thank-you window', () => {
 
   it('THANK_YOU_MS is the binding 6 s window', () => {
     expect(THANK_YOU_MS).toBe(6000);
+  });
+});
+
+describe('firstFavorDoneVillagerId — first completion wins (M1)', () => {
+  const done = (villagerId?: string): SimEvent =>
+    villagerId === undefined ? { type: 'favor-done' } : { type: 'favor-done', villagerId };
+
+  it('two favor-done events in one batch → the first id, by array order', () => {
+    expect(firstFavorDoneVillagerId([done('v1'), done('v7')])).toBe('v1');
+    expect(firstFavorDoneVillagerId([done('v7'), done('v1')])).toBe('v7');
+  });
+
+  it('no favor-done event → null, other event types are skipped', () => {
+    expect(firstFavorDoneVillagerId([])).toBeNull();
+    expect(firstFavorDoneVillagerId([{ type: 'eat', villagerId: 'v1' }, { type: 'chop' }])).toBeNull();
+  });
+
+  it('skips an id-less favor-done rather than dropping the window entirely', () => {
+    expect(firstFavorDoneVillagerId([done(), done('v3')])).toBe('v3');
+  });
+});
+
+describe('hintRecomputeDue — cadence + thanks-window edges (M6)', () => {
+  it('recomputes immediately when the thanks window opens', () => {
+    expect(hintRecomputeDue(1000, 9000, null, 'Fern')).toBe(true);
+  });
+
+  it('recomputes immediately when the thanks window closes', () => {
+    expect(hintRecomputeDue(7000, 9000, 'Fern', null)).toBe(true);
+  });
+
+  it('recomputes immediately on a same-frame window swap', () => {
+    expect(hintRecomputeDue(1000, 9000, 'Fern', 'Juniper')).toBe(true);
+  });
+
+  it('with no edge, waits for the cadence: false early, true once due', () => {
+    expect(hintRecomputeDue(1000, 9000, null, null)).toBe(false);
+    expect(hintRecomputeDue(8999, 9000, 'Fern', 'Fern')).toBe(false);
+    expect(hintRecomputeDue(9000, 9000, null, null)).toBe(true);
   });
 });
 

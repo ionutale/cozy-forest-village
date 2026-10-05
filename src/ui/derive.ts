@@ -2,7 +2,7 @@
 // so every function here is directly unit-testable under vitest's node environment
 // (see ./derive.test.ts). The UI layer owns when to call them and what to do with the result.
 
-import type { FavorWant, GameState, StructureKind, TaskId, Villager } from '../sim';
+import type { FavorWant, GameState, SimEvent, StructureKind, TaskId, Villager } from '../sim';
 import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
 
 /** Batch 4: UI-side "delighted!" window after a `favor-done` event (DESIGN §3.2; no sim state). */
@@ -96,6 +96,36 @@ export function villageLine(state: GameState, thanks: string | null): string {
 }
 
 /**
+ * Batch 4: the requester id of the *first* usable `favor-done` in one frame's event batch, or
+ * null when no completion carries a villager id. First wins deterministically, so two
+ * completions in one tick cannot overwrite each other's "delighted!" window — the
+ * lower-array-index requester keeps its moment. Id-less events are skipped, as the pump
+ * always did.
+ */
+export function firstFavorDoneVillagerId(events: readonly SimEvent[]): string | null {
+  for (const ev of events) {
+    if (ev.type === 'favor-done' && ev.villagerId) return ev.villagerId;
+  }
+  return null;
+}
+
+/**
+ * Batch 4: whether this frame recomputes the panel hint. True on the slow routine cadence, and
+ * on either edge of the "delighted!" window — `thanksBefore` null → set opens it, set → null
+ * closes it (a same-frame name swap counts as an edge too). Recomputing on the edges is what
+ * keeps the 6 s window from falling between two 10 s ticks: the open edge writes the line
+ * immediately, the close edge restores the prior line immediately.
+ */
+export function hintRecomputeDue(
+  now: number,
+  hintDueAt: number,
+  thanksBefore: string | null,
+  thanksAfter: string | null,
+): boolean {
+  return thanksBefore !== thanksAfter || now >= hintDueAt;
+}
+
+/**
  * Batch 4: UI-owned flavor copy for a favor want (the DESIGN §3.2 "Favor chains" table's last
  * column), like `STRUCTURE_NAMES` — the sim owns chain content, the words are presentation.
  */
@@ -159,7 +189,7 @@ function activeFavor(
  * has no active favor. Pure; the caller decides which villager (the hint picks by id, the
  * popover picks the current selection).
  */
-export function favorLineFor(state: GameState, villagerIndex: number): string | null {
+function favorLineFor(state: GameState, villagerIndex: number): string | null {
   const active = activeFavor(state, villagerIndex);
   const name = state.villagers[villagerIndex]?.name;
   if (!active || !name) return null;
