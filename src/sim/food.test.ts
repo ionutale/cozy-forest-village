@@ -25,15 +25,15 @@ describe('structure ring & initial shape', () => {
     const a = createInitialState();
     const b = createInitialState();
     expect(a).toEqual(b);
-    expect(a.structures).toHaveLength(7);
+    expect(a.structures).toHaveLength(11); // + four unbuilt hut plots (H1)
     const byId = new Map(a.structures.map((s) => [s.id, s]));
     expect(byId.get('woodpile')?.built).toBe(true);
     for (const id of ['pot', 'bench', 'garden', 'lantern-a', 'lantern-b', 'feeder']) {
       expect(byId.get(id)?.built, id).toBe(false);
     }
-    // Ring spots sit at r = 5.2.
+    // Ring spots sit at r = 5.2 (hut plots sit apart, on their own ring).
     for (const s of a.structures) {
-      if (s.id === 'woodpile') continue;
+      if (s.id === 'woodpile' || s.kind === 'hut') continue;
       expect(Math.hypot(s.pos.x, s.pos.z)).toBeCloseTo(5.2, 10);
     }
   });

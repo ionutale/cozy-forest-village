@@ -223,7 +223,11 @@ describe('world gen & initial shape (batch 2)', () => {
     expect(a.fire).toEqual({ fuel: 70, max: 100 });
     expect(a.pot).toEqual({ meals: 0 });
     expect(a.gardenMs).toBe(0);
-    expect(a.structures).toHaveLength(7); // woodpile + six ring spots (B2)
+    expect(a.structures).toHaveLength(11); // woodpile + six ring spots (B2) + four hut plots (H1)
+    const huts = a.structures.filter((s) => s.kind === 'hut');
+    expect(huts.map((s) => s.id)).toEqual(['hut-1', 'hut-2', 'hut-3', 'hut-4']);
+    expect(huts.every((s) => !s.built)).toBe(true);
+    expect(a.arrivals).toEqual([]);
     expect(a.villagers.every((v) => v.fedMs === 0 && v.carrying === false)).toBe(true);
   });
 });

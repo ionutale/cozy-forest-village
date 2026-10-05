@@ -3,9 +3,9 @@
 // nothing else from the sim.
 
 export type TaskId = 'chop' | 'berries' | 'rest' | 'tend' | 'cook';
-export type VillagerState = 'idle' | 'walking' | 'working' | 'resting';
+export type VillagerState = 'idle' | 'walking' | 'working' | 'resting' | 'arriving';
 
-export type StructureKind = 'woodpile' | 'pot' | 'garden' | 'bench' | 'lantern' | 'feeder';
+export type StructureKind = 'woodpile' | 'pot' | 'garden' | 'bench' | 'lantern' | 'feeder' | 'hut';
 
 export interface Vec2 {
   x: number;
@@ -79,6 +79,15 @@ export interface FavorsState {
   nextOfferMs: number; // countdown until the next offer attempt
 }
 
+// Batch 6: pending newcomer walk-ins (DESIGN.md §3.2 “Huts”; spec
+// docs/superpowers/specs/2026-10-05-huts-newcomers-design.md Part 1).
+
+export interface Arrival {
+  structureId: string; // the hut that was completed
+  inMs: number; // countdown to the walk-in (starts at HUT_SETTLE_MS)
+  castIndex: number; // 0..3, frozen at schedule time
+}
+
 export interface GameState {
   tick: number; // increments once per tick() call
   seed: number;
@@ -92,4 +101,5 @@ export interface GameState {
   events: SimEvent[]; // events from the latest tick; seeded from pendingEvents at tick start
   pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
   favors: FavorsState; // batch 4: per-villager favor chains (binding rules in DESIGN.md §3.2)
+  arrivals: Arrival[]; // batch 6: pending newcomer walk-ins (binding rules in DESIGN.md §3.2)
 }

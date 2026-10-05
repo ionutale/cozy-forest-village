@@ -3,7 +3,7 @@
 // layers may import; internal modules are implementation detail.
 
 export type {
-  FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
+  Arrival, FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
   SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState,
 } from './types';
 
@@ -14,12 +14,13 @@ import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
 import {
   ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
-  FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
-  GARDEN_PERIOD_MS, LOG_FUEL, MOVE_SPEED, OBSTACLE_ENDGAME_RADIUS,
+  EDGE_SPAWN, FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
+  GARDEN_PERIOD_MS, HUT_PLOTS, HUT_SETTLE_MS, LOG_FUEL, MOVE_SPEED,
+  NEWCOMER_CAST, OBSTACLE_ENDGAME_RADIUS,
   STRUCTURE_ARRIVAL_DISTANCE,
   STRUCTURE_COST as STRUCTURE_COST_TABLE,
   STRUCTURE_RING, STRUCTURE_RING_RADIUS, TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE,
-  TRUNK_CLEAR_RADIUS, WORK_PERIOD_MS, nearestNode, nearestStructure,
+  TRUNK_CLEAR_RADIUS, VILLAGE_CAP, WORK_PERIOD_MS, nearestNode, nearestStructure,
   restDuration, restSpot, structureSpot, workSpot,
 } from './tasks';
 
@@ -43,6 +44,13 @@ export { COOK_BERRIES, COOK_WOOD, GARDEN_PERIOD_MS } from './tasks';
 export {
   CHAIN_LENGTH, FIRST_OFFER_MS, MAX_ACTIVE_FAVORS, NEXT_OFFER_GAP_MS, createFavors, favorWantFor,
 } from './favors';
+
+/**
+ * Huts → newcomers (batch 6): hut plots, settle delay, roster cap, and the
+ * fixed cast are on the public surface (DESIGN.md §3 read-only-imports list,
+ * exactly like STRUCTURE_COST).
+ */
+export { HUT_PLOTS, HUT_SETTLE_MS, NEWCOMER_CAST, VILLAGE_CAP } from './tasks';
 
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
@@ -79,6 +87,13 @@ export function createInitialState(seed = 1): GameState {
         },
         built: false,
       })),
+      // Batch 6: four hut plots on the second ring, all unbuilt at game start.
+      ...HUT_PLOTS.map((plot) => ({
+        id: plot.id,
+        kind: 'hut' as StructureKind,
+        pos: { x: plot.pos.x, z: plot.pos.z },
+        built: false,
+      })),
     ],
     fire: { fuel: 70, max: 100 },
     pot: { meals: 0 },
@@ -86,12 +101,15 @@ export function createInitialState(seed = 1): GameState {
     events: [],
     pendingEvents: [],
     favors: createFavors(villagers.length),
+    arrivals: [],
   };
 }
 
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void {
   const villager = state.villagers.find((v) => v.id === villagerId);
   if (!villager) return; // unknown id: no-op
+  // Walk-ins refuse assignment: an 'arriving' villager walks to their hut first.
+  if (villager.state === 'arriving') return;
   // A carried log settles first: reassigning a keeper away from tend refunds
   // the log to the stockpile (no stranded logs, no permanent carry pose).
   if (villager.carrying && task !== 'tend') {
@@ -150,6 +168,15 @@ export function buildStructure(state: GameState, structureId: string): boolean {
   state.resources.berries -= cost.berries;
   s.built = true;
   state.pendingEvents.push({ type: 'built', structureId: s.id });
+  if (s.kind === 'hut') {
+    // A completed hut schedules one newcomer walk-in (DESIGN.md §3.2, batch 6):
+    // the cast row freezes now, in completion order.
+    state.arrivals.push({
+      structureId: s.id,
+      inMs: HUT_SETTLE_MS,
+      castIndex: state.villagers.length - 8 + state.arrivals.length,
+    });
+  }
   return true;
 }
 
@@ -179,6 +206,35 @@ export function tick(state: GameState, dtMs: number): void {
       state.events.push({ type: 'garden' }); // one event per yield — the player hears it
     }
   }
+  // Huts → newcomers (DESIGN.md §3.2, batch 6): countdown pending arrivals and
+  // fire the due ones in queue order — countdown floors at 0, firing appends
+  // the newcomer plus a fresh favor record (arrays never desync).
+  for (let a = 0; a < state.arrivals.length; a += 1) {
+    const arrival = state.arrivals[a]!;
+    arrival.inMs = Math.max(0, arrival.inMs - dtMs);
+    if (arrival.inMs > 0) continue;
+    state.arrivals.splice(a, 1);
+    a -= 1;
+    const cast = NEWCOMER_CAST[arrival.castIndex];
+    // Defensive: drop the entry past the roster cap (unreachable by
+    // construction — four huts can only ever yield cast rows 0..3).
+    if (!cast || state.villagers.length >= VILLAGE_CAP) continue;
+    state.villagers.push({
+      id: `v${state.villagers.length + 1}`,
+      name: cast.name,
+      hatColor: cast.hatColor,
+      task: null,
+      state: 'arriving',
+      pos: { x: EDGE_SPAWN.x, z: EDGE_SPAWN.z },
+      facing: 0,
+      targetNodeId: arrival.structureId,
+      progressMs: 0,
+      fedMs: 0,
+      carrying: false,
+      restMs: 0,
+    });
+    state.favors.byVillager.push({ step: 0, active: false, progress: 0 });
+  }
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
     // fedMs decays with dtMs in every state (DESIGN.md §3.2). Runs before the
@@ -187,6 +243,7 @@ export function tick(state: GameState, dtMs: number): void {
     if (villager.task === 'tend') tendKeeper(state, villager, i);
     switch (villager.state) {
       case 'walking':
+      case 'arriving': // walk-ins reuse the existing walk toward their hut
         walk(state, villager, i, dtMs);
         break;
       case 'working':
@@ -412,7 +469,10 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     villager.pos.z += (dz / dist) * move;
   }
   if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= arrivedTol) {
-    if (villager.task === 'rest') {
+    if (villager.state === 'arriving') {
+      // Walk-in complete: idle at the hut, assignable from here (task stays null).
+      villager.state = 'idle';
+    } else if (villager.task === 'rest') {
       // Eat on arrival when the fire is warm, meals are available, and the
       // belly isn't already full (DESIGN.md §3.2): consume 1 meal, rest
       // 5500 ms, become well-fed. Otherwise rest by fire state, untouched.

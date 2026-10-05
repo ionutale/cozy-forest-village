@@ -79,6 +79,7 @@ export const STRUCTURE_COST: Record<StructureKind, { wood: number; berries: numb
   garden: { wood: 25, berries: 0 },
   lantern: { wood: 10, berries: 0 },
   feeder: { wood: 10, berries: 5 },
+  hut: { wood: 30, berries: 10 },
 };
 
 /** The six build spots on the village ring (r = 5.2, angles 30°–330°). */
@@ -90,6 +91,31 @@ export const STRUCTURE_RING: ReadonlyArray<{ id: string; kind: StructureKind; an
   { id: 'lantern-a', kind: 'lantern', angle: (7 * Math.PI) / 6 }, // 210°
   { id: 'lantern-b', kind: 'lantern', angle: (3 * Math.PI) / 2 }, // 270°
   { id: 'feeder', kind: 'feeder', angle: (11 * Math.PI) / 6 }, // 330°
+];
+
+// ── Batch 6: huts → newcomers (DESIGN.md §3.2) ────────────────────────────
+
+/** Hut plots sit on a second ring (r = 7.6, angles 45°/135°/225°/315°). */
+export const HUT_RING_RADIUS = 7.6;
+/** The four hut plots, in plot order (completion order picks the cast row). */
+export const HUT_PLOTS: readonly { id: string; pos: Vec2 }[] = [
+  { id: 'hut-1', pos: { x: Math.cos(Math.PI / 4) * HUT_RING_RADIUS, z: Math.sin(Math.PI / 4) * HUT_RING_RADIUS } }, // 45°
+  { id: 'hut-2', pos: { x: Math.cos((3 * Math.PI) / 4) * HUT_RING_RADIUS, z: Math.sin((3 * Math.PI) / 4) * HUT_RING_RADIUS } }, // 135°
+  { id: 'hut-3', pos: { x: Math.cos((5 * Math.PI) / 4) * HUT_RING_RADIUS, z: Math.sin((5 * Math.PI) / 4) * HUT_RING_RADIUS } }, // 225°
+  { id: 'hut-4', pos: { x: Math.cos((7 * Math.PI) / 4) * HUT_RING_RADIUS, z: Math.sin((7 * Math.PI) / 4) * HUT_RING_RADIUS } }, // 315°
+];
+/** Delay from hut completion to the newcomer's walk-in. */
+export const HUT_SETTLE_MS = 90_000;
+/** Hard roster cap: the starting 8 plus one newcomer per hut. */
+export const VILLAGE_CAP = 12;
+/** South forest edge — every newcomer enters the world here. */
+export const EDGE_SPAWN: Vec2 = { x: 0, z: -12 };
+/** The fixed newcomer cast, in hut-completion order. */
+export const NEWCOMER_CAST: readonly { name: string; hatColor: string }[] = [
+  { name: 'Lily', hatColor: '#e3b7c4' },
+  { name: 'Rowan', hatColor: '#b03a3a' },
+  { name: 'Sage', hatColor: '#a8bd86' },
+  { name: 'Wren', hatColor: '#7d6a52' },
 ];
 
 /** Node-targeting tasks (DESIGN.md §3.1). */
