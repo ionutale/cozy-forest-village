@@ -117,6 +117,9 @@ export const NEXT_VISIT_GAP_MS: number;
 export const TRADER_WALK_MS: number;
 export const TRADES_PER_VISIT: number;
 export const HEARTY_FED_MS: number;
+export const TRADE_WOOD_COST: number;
+export const TRADE_WOOD_YIELD: number;
+export const TRADE_BERRY_COST: number;
 export function trade(state: GameState, kind: 'berries' | 'spice'): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
@@ -164,6 +167,8 @@ export interface UIActions {
   build(structureId: string): void;
   /** B7: wipe the save and start a fresh village. */
   resetVillage(): void;
+  /** T3 (batch 7): buy from the visiting trader; refused while away/deficient or out of trades. */
+  trade(kind: 'berries' | 'spice'): void;
 }
 export interface UIHandle {
   render(state: GameState): void;
@@ -172,6 +177,8 @@ export interface UIHandle {
   select(villagerId: string | null): void;
   /** B7: external structure selection (ghost or built). */
   selectStructure(structureId: string | null): void;
+  /** T3 (batch 7): trader face on (default) / off — `false` closes only the trader face. */
+  selectTrader(on?: boolean): void;
 }
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
@@ -180,7 +187,8 @@ Contract rules: other layers import **types**, the read-only data constants
 (`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`, `FIRST_OFFER_MS`,
 `NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`, `HUT_PLOTS`, `HUT_SETTLE_MS`,
 `VILLAGE_CAP`, `NEWCOMER_CAST`, `FIRST_VISIT_MS`, `VISIT_STAY_MS`, `NEXT_VISIT_GAP_MS`,
-`TRADER_WALK_MS`, `TRADES_PER_VISIT`, `HEARTY_FED_MS`) and the `createFavors`/`favorWantFor`/`trade`
+`TRADER_WALK_MS`, `TRADES_PER_VISIT`, `HEARTY_FED_MS`, `TRADE_WOOD_COST`, `TRADE_WOOD_YIELD`,
+`TRADE_BERRY_COST`) and the `createFavors`/`favorWantFor`/`trade`
 factories from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
