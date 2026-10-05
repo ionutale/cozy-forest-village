@@ -38,6 +38,22 @@ export function initAudio(): AudioHandle {
   let chirpElapsedMs = 0;
   let crackleInMs = 300; // first grain lands soon after start
   let crackleElapsedMs = 0;
+  // A3 — wind gusts: a seeded random walk on the bed's own gain (never a new voice).
+  // Own PRNG stream so the pre-existing chirp/crackle/jitter sequence stays byte-identical.
+  const gustRnd = mulberry32(1804);
+  const WIND_BASE_GAIN = 0.5;
+  const GUST_MIN = 0.6;
+  const GUST_MAX = 1.4;
+  const GUST_TAU_S = 0.8; // setTargetAtTime time constant → ~95 % settled in ~2.4 s
+  let windGain: GainNode | null = null;
+  let gustFactor = 1;
+  let gustInMs = 4000 + gustRnd() * 8000; // first gust shift 4–12 s after start
+  let gustElapsedMs = 0;
+  // A3 — cook streak: consecutive meals within the window climb +1 semitone each (cap +4).
+  const MEAL_STREAK_WINDOW_S = 12;
+  const MEAL_STREAK_CAP = 4;
+  let lastMealAtS = Number.NEGATIVE_INFINITY;
+  let mealStreak = 0;
   const lastSfx: Record<string, number> = {
     chop: -10, gather: -10, 'rest-done': -10,
     'fuel-add': -10, 'meal-cooked': -10, eat: -10, built: -10,
@@ -91,17 +107,18 @@ export function initAudio(): AudioHandle {
     const lowpass = context.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 400;
-    const windGain = context.createGain();
-    windGain.gain.value = 0.5;
+    const bedGain = context.createGain();
+    bedGain.gain.value = WIND_BASE_GAIN;
+    windGain = bedGain; // A3: the gust walk modulates this base (the 0.08 Hz LFO stays summed on top)
     const lfo = context.createOscillator();
     lfo.frequency.value = 0.08;
     const lfoAmt = context.createGain();
     lfoAmt.gain.value = 0.18;
     lfo.connect(lfoAmt);
-    lfoAmt.connect(windGain.gain);
+    lfoAmt.connect(bedGain.gain);
     noise.connect(lowpass);
-    lowpass.connect(windGain);
-    windGain.connect(out);
+    lowpass.connect(bedGain);
+    bedGain.connect(out);
     noise.start();
     lfo.start();
     const padGain = context.createGain();
@@ -149,10 +166,18 @@ export function initAudio(): AudioHandle {
       case 'gather': pluck(); break;
       case 'rest-done': chime(); break;
       case 'fuel-add': thud(); break;
-      case 'meal-cooked': mealBlip(); break;
+      case 'meal-cooked': mealBlip(advanceMealStreak(now)); break;
       case 'eat': munch(); break;
       case 'built': builtSfx(); break;
     }
+  }
+
+  /** A3: one step of the cook streak — a meal within 12 s of the last blip climbs the phrase. */
+  function advanceMealStreak(nowS: number): number {
+    const gap = nowS - lastMealAtS;
+    lastMealAtS = nowS;
+    mealStreak = gap <= MEAL_STREAK_WINDOW_S ? Math.min(mealStreak + 1, MEAL_STREAK_CAP) : 0;
+    return mealStreak;
   }
 
   function chime(): void {
@@ -167,11 +192,13 @@ export function initAudio(): AudioHandle {
     voice(ctx.currentTime + 0.01, 180, 90, 0.15, 0.12, 0, 'triangle'); // soft low log thud
   }
 
-  function mealBlip(): void {
+  /** Two-note warm blip; `semitones` (0–4, cook streak) lifts both notes by the same ratio. */
+  function mealBlip(semitones: number): void {
     if (!ctx) return;
+    const k = Math.pow(2, semitones / 12);
     const at = ctx.currentTime + 0.01;
-    voice(at, 520, 520, 0.2, 0.07, -0.15, 'sine'); // two-note warm blip
-    voice(at + 0.13, 660, 660, 0.22, 0.06, 0.15, 'sine');
+    voice(at, 520 * k, 520 * k, 0.2, 0.07, -0.15, 'sine'); // two-note warm blip
+    voice(at + 0.13, 660 * k, 660 * k, 0.22, 0.06, 0.15, 'sine');
   }
 
   function munch(): void {
@@ -275,6 +302,7 @@ export function initAudio(): AudioHandle {
     } catch {
       ctx = null;
       master = null;
+      windGain = null;
     }
   }
 
@@ -307,6 +335,20 @@ export function initAudio(): AudioHandle {
         crackleInMs = (1000 / rate) * (0.5 + rnd());
         crackleGrain(peak);
       }
+      // A3: wind gusts — a slow seeded random walk of the bed gain, re-targeted every 4–12 s and
+      // eased with setTargetAtTime over ~2.4 s (DESIGN §2: everything eases, nothing snappy).
+      if (windGain) {
+        gustElapsedMs += dtMs;
+        if (gustElapsedMs >= gustInMs) {
+          gustElapsedMs = 0;
+          gustInMs = 4000 + gustRnd() * 8000;
+          let next = gustFactor + (gustRnd() * 0.9 - 0.45); // ±0.45 step, reflected at the bounds
+          if (next < GUST_MIN) next = GUST_MIN + (GUST_MIN - next);
+          if (next > GUST_MAX) next = GUST_MAX - (next - GUST_MAX);
+          gustFactor = Math.min(GUST_MAX, Math.max(GUST_MIN, next));
+          windGain.gain.setTargetAtTime(WIND_BASE_GAIN * gustFactor, ctx.currentTime, GUST_TAU_S);
+        }
+      }
       let pick: SfxKind | null = null;
       let best = -1;
       const consider = (kind: SfxKind, rank: number): void => {
@@ -333,6 +375,7 @@ export function initAudio(): AudioHandle {
       if (ctx) ctx.close().catch(() => undefined);
       ctx = null;
       master = null;
+      windGain = null;
       delete window.__cozyAudio;
     },
   };
