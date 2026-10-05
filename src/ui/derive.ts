@@ -3,7 +3,7 @@
 // (see ./derive.test.ts). The UI layer owns when to call them and what to do with the result.
 
 import type { FavorWant, GameState, SimEvent, StructureKind, TaskId, Villager } from '../sim';
-import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
+import { GARDEN_PERIOD_MS, TRADE_BERRY_COST, TRADE_WOOD_COST, TRADE_WOOD_YIELD, favorWantFor } from '../sim';
 
 /** Batch 4: UI-side "delighted!" window after a `favor-done` event (DESIGN §3.2; no sim state). */
 export const THANK_YOU_MS = 6000;
@@ -29,6 +29,27 @@ export const WORK_LABELS: Record<TaskId, string> = {
   tend: 'Tending fire',
   cook: 'Cooking',
 };
+
+/**
+ * T3 (batch 7): which exchange a trade button offers. Named for the sim's own vocabulary —
+ * `'berries'` sells wood for berries, `'spice'` sells berries for a spice — so the button, the
+ * `UIActions.trade(kind)` call, and the sim's `SimEvent.tradeKind` never disagree.
+ */
+export type TradeKind = 'berries' | 'spice';
+
+/**
+ * T3: what each trade offers, as the sim's `trade(state, kind)` prices them (DESIGN §3.2, batch 7).
+ * The two amounts the UI *spends* are the sim's own sanctioned constants (T3c), so the number on
+ * the button and the number the gate enforces cannot drift apart. The spice trade's 1-for-1 yield
+ * has no sanctioned constant, so that side stays a literal — pinned by the `TRADE_LABELS` test.
+ */
+export const TRADE_LABELS: Record<TradeKind, string> = {
+  berries: `${TRADE_WOOD_COST} wood → ${TRADE_WOOD_YIELD} berries`,
+  spice: `${TRADE_BERRY_COST} berries → 1 spice`,
+};
+
+/** T3: the hint's trader slot. A constant so the pure test and the DOM cannot drift apart. */
+export const TRADER_HINT = 'A trader is visiting!';
 
 /** Card label: what the villager is doing *now*, not what they were told to do (M11b). */
 export function cardLabel(villager: Villager): string {
@@ -102,6 +123,11 @@ export function villageLine(state: GameState, thanks: string | null): string {
   if (thanks !== null) return delightText(thanks);
   const favor = favorLine(state);
   if (favor !== null) return favor;
+  // T3: the trader slot. It outranks every ambient slot below (dimming, cooking, fed, meals,
+  // roaring) because a visit is time-boxed — miss it and it is gone — while those are steady
+  // states the player can read again next tick.
+  const trader = traderHintLine(state);
+  if (trader !== null) return trader;
   const ratio = state.fire.max > 0 ? state.fire.fuel / state.fire.max : 0;
   if (ratio < FUEL_STEADY / 100) return 'The fire is dimming.';
   const cooking = firstById(state.villagers, (v) => v.state === 'working' && v.task === 'cook');
@@ -133,14 +159,57 @@ export function firstFavorDoneVillagerId(events: readonly SimEvent[]): string | 
  * closes it (a same-frame name swap counts as an edge too). Recomputing on the edges is what
  * keeps the 6 s window from falling between two 10 s ticks: the open edge writes the line
  * immediately, the close edge restores the prior line immediately.
+ *
+ * T3: a visit's arrival and end are edges for the same reason, and more so — the visit is
+ * time-boxed, so waiting up to `HINT_INTERVAL_MS` would announce a trader who has already left,
+ * or hide one standing at the gate. Both default to `false`, which leaves every batch-4 call site
+ * and test behaving exactly as before.
  */
 export function hintRecomputeDue(
   now: number,
   hintDueAt: number,
   thanksBefore: string | null,
   thanksAfter: string | null,
+  visitingBefore = false,
+  visitingAfter = false,
 ): boolean {
-  return thanksBefore !== thanksAfter || now >= hintDueAt;
+  return thanksBefore !== thanksAfter || visitingBefore !== visitingAfter || now >= hintDueAt;
+}
+
+/**
+ * T3 (batch 7): the hint's trader slot, or null while no one is visiting. Read from `state` only
+ * — the UI holds no trader flag, so the line cannot disagree with the sim's own phase.
+ */
+export function traderHintLine(state: GameState): string | null {
+  return state.visitor.phase === 'visiting' ? TRADER_HINT : null;
+}
+
+/**
+ * T3: whether a trade button must be disabled. The sim refuses the trade in exactly these cases
+ * (`trade(state, kind)`), so mirroring them keeps the button honest instead of letting the player
+ * click something that will not happen: no visit, no trades left, or not enough stock for that
+ * exchange. Pure — the unit test walks the whole truth table, which the popover cannot.
+ */
+export function tradeDisabled(state: GameState, kind: TradeKind): boolean {
+  const visitor = state.visitor;
+  if (visitor.phase !== 'visiting' || visitor.tradesLeft <= 0) return true;
+  return kind === 'berries'
+    ? state.resources.wood < TRADE_WOOD_COST
+    : state.resources.berries < TRADE_BERRY_COST;
+}
+
+/**
+ * T3: the pot line's trailing clause, or `''`. Only meaningful when the pot is built *and* a spice
+ * is in store — that is the only state in which a cook eats heartily (DESIGN §3.2, batch 7). The
+ * leading ` · ` is part of the return so the append site stays a bare concatenation.
+ *
+ * `spices > 0` mirrors the sim's own hearty-eat test rather than rounding, so the line says
+ * exactly what the cook will do even if a hand-edited save carries a fractional count.
+ */
+export function potHeartySuffix(state: GameState): string {
+  if (!(state.resources.spices > 0)) return '';
+  const potBuilt = state.structures.some((s) => s.kind === 'pot' && s.built);
+  return potBuilt ? ' · hearty while spices last' : '';
 }
 
 /**

@@ -12,10 +12,11 @@ import type { GameState, Structure, TaskId } from '../sim';
 import { appendCards, buildCards, cancelHeartPulse, syncCards, type CardParts } from './cards';
 import {
   DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState,
-  firstFavorDoneVillagerId, hintRecomputeDue, villageLine,
+  firstFavorDoneVillagerId, hintRecomputeDue, tradeDisabled, villageLine,
 } from './derive';
 import { bindRefs, uiMarkup } from './markup';
 import { createStructureCard } from './structure-card';
+import type { TradeKind } from './derive';
 
 export interface UIActions {
   assignTask(villagerId: string, task: TaskId | null): void;
@@ -25,6 +26,8 @@ export interface UIActions {
   build(structureId: string): void;
   /** B7: wipe the save and start a fresh village. */
   resetVillage(): void;
+  /** T3: buy from the visiting trader. `'berries'` sells 5 wood, `'spice'` sells 6 berries. */
+  trade(kind: TradeKind): void;
 }
 
 export interface UIHandle {
@@ -34,6 +37,20 @@ export interface UIHandle {
   select(villagerId: string | null): void;
   /** B7: external structure selection (ghost or built). */
   selectStructure(structureId: string | null): void;
+  /**
+   * T3: show the popover's trader face — the third face, same zone 3. Silent, like
+   * `selectStructure`: main.ts has already told the render layer the trader is selected.
+   *
+   * DESIGN §3 declares this as `selectTrader(): void`, and a zero-arg call still opens the face.
+   * The optional `on` exists because main.ts calls it unconditionally once per click — with only
+   * a zero-arg signature, that call would *open* the trader face on every click of a villager or
+   * of empty ground during a visit. `on = false` therefore closes just the trader face, leaving
+   * any villager or structure face main.ts opened in the same gesture untouched.
+   *
+   * The mode also closes itself on `select(null)`, when another face opens, and when the visit
+   * ends; a `selectTrader()` for a trader who is not visiting is a no-op.
+   */
+  selectTrader(on?: boolean): void;
 }
 
 /** Minimum gap between two yield pulses on the same HUD pill (M11a). */
@@ -52,6 +69,14 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const cards = new Map<string, CardParts>();
   let selectedId: string | null = null;
   let selectedStructureId: string | null = null;
+  /**
+   * T3: the popover's third face. Set by `selectTrader()` (a 3D click on the trader) and cleared
+   * by every other path that opens the popover — so the three faces are mutually exclusive by
+   * construction rather than by three separate hide calls at each site.
+   */
+  let traderMode = false;
+  /** T3: a `selectTrader()` arriving before the first `render()`; applied as soon as state exists. */
+  let pendingTrader = false;
   // A select()/selectStructure() before the first render() has nothing to read from yet, so
   // park the request and apply it as soon as cards exist.
   let pendingSelection: string | null | undefined;
@@ -66,6 +91,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   let thanksName: string | null = null;
   let thanksUntil = 0;
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
+  /** T3: the hint's trader-slot edge — last frame's phase, so the recompute clock can see it flip. */
+  let visitingBefore = false;
 
   function selectedStructure(state: GameState): Structure | undefined {
     return state.structures.find((s) => s.id === selectedStructureId);
@@ -76,6 +103,10 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     cards.get(selectedId ?? '')?.card.classList.remove('selected');
     selectedId = null;
     selectedStructureId = null;
+    // T3: the trader face is one of the three mutually exclusive faces, so this always closes it.
+    refs.traderCard.hidden = true;
+    traderMode = false;
+    popover.dataset.face = 'none';
     popover.hidden = true;
   }
 
@@ -121,6 +152,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     selectedId = villager.id;
     cardParts.card.classList.add('selected');
     popoverTitle.textContent = villager.name;
+    popover.dataset.face = 'villager';
     // The popover is a footer below the list, so every card stays visible and clickable.
     popover.hidden = false;
     syncActiveButtons(state);
@@ -154,6 +186,10 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     if (!structure) return;
     selectedStructureId = structure.id;
     popoverTitle.textContent = STRUCTURE_NAMES[structure.kind];
+    // T3d: recorded, but no CSS keys off it — the structure face keeps showing the task grid,
+    // which is pre-existing behaviour this wave must not change. It is set anyway so the
+    // attribute always names the face actually on screen.
+    popover.dataset.face = 'structure';
     popover.hidden = false;
     syncActiveButtons(state);
     card.reset(); // force a repaint for the newly selected structure
@@ -167,9 +203,69 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     if (parts) openPopover(parts, lastState, true);
   };
 
+  /**
+   * T3: the trader face's live state. Both buttons read `tradeDisabled`, which mirrors the sim's
+   * own refusals (no visit, no trades left, not enough stock), and the "Trades left" line reads
+   * the counter — so a spent visit greys both buttons instead of letting a click bounce off the
+   * sim. Every write is transition-guarded, because this runs every frame the face is open.
+   */
+  function syncTrader(state: GameState): void {
+    // T3d: the label, not a bare counter — the live capture showed a lonely "0". Same string the
+    // spec names, composed here so the countdown logic is untouched and the guard still compares
+    // against the whole line (a change in either the count or the wording repaints once).
+    const tradesLeft = `Trades left: ${state.visitor.tradesLeft}`;
+    if (refs.tradesLeft.textContent !== tradesLeft) refs.tradesLeft.textContent = tradesLeft;
+    for (const btn of refs.tradeBtns) {
+      setDisabled(btn, tradeDisabled(state, btn.dataset.trade as TradeKind));
+    }
+  }
+
+  /** T3: show the third face. Silent — main.ts has already told the render layer. */
+  function applyTraderSelection(state: GameState): void {
+    // Nothing to trade with if nobody is here, so the mode simply does not open.
+    if (state.visitor.phase !== 'visiting') return;
+    clearSelectionVisuals();
+    traderMode = true;
+    refs.traderCard.hidden = false;
+    popoverTitle.textContent = 'Trader';
+    // T3d: the face switch. One attribute, written once per gesture, hides the shared villager
+    // chrome for this face only (see ui.css). `card.sync(state, undefined)` retires any structure
+    // card a previous selection left rendered — without it the trader face could show a stale
+    // cost/Build line, because `clearSelectionVisuals` does not touch the card and the pump only
+    // syncs it while a structure is selected.
+    popover.dataset.face = 'trader';
+    card.sync(state, undefined);
+    popover.hidden = false;
+    syncTrader(state);
+  }
+
+  /**
+   * T3: close only the trader face. Deliberately narrower than `clearSelectionVisuals`, because
+   * `selectTrader(false)` arrives *after* main.ts has opened a villager or structure face in the
+   * same gesture — closing everything there would dismiss the selection the player just made.
+   */
+  function closeTraderFace(): void {
+    if (!traderMode) return;
+    traderMode = false;
+    refs.traderCard.hidden = true;
+    // Nothing else is selected, so the popover itself has no reason to stay open.
+    if (selectedId === null && selectedStructureId === null) popover.hidden = true;
+  }
+
   const onPopoverClick = (ev: Event): void => {
     const target = ev.target instanceof Element ? ev.target.closest('button') : null;
     if (!(target instanceof HTMLButtonElement)) return;
+    // T3: a trade button wins before every other branch — it is the only face that can carry one.
+    const trade = target.dataset.trade as TradeKind | undefined;
+    if (trade !== undefined) {
+      if (!traderMode || !lastState) return;
+      // aria-disabled is enforced in CSS too, but the guard keeps keyboard activation honest.
+      if (tradeDisabled(lastState, trade)) return;
+      actions.trade(trade);
+      // The sim moved the stock and the trade counter; repaint from the truth, not from a guess.
+      syncTrader(lastState);
+      return;
+    }
     if (target.dataset.build !== undefined) {
       if (target.getAttribute('aria-disabled') === 'true' || !selectedStructureId) return;
       actions.build(selectedStructureId);
@@ -243,6 +339,10 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         pendingStructure = undefined;
         applyStructureSelection(requested, state);
       }
+      if (pendingTrader) {
+        pendingTrader = false;
+        applyTraderSelection(state);
+      }
       for (const res of ['wood', 'berries'] as const) {
         // M1: pill + value nodes are hoisted out of the frame; only the numbers change here.
         const pill = res === 'wood' ? refs.woodPill : refs.berriesPill;
@@ -276,6 +376,16 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
           fuelPill.classList.add('yield-pulse');
         }
       }
+      // T3: the spices pill. Hoisted out of the frame like the other two and guarded the same
+      // way — spices only ever change on a trade (up) or a hearty eat (down), so this settles to
+      // a single integer comparison per frame and writes only on a real change. No yield pulse:
+      // there is no gather event for a trade.
+      const spices = String(state.resources.spices);
+      if (refs.spicesPill.dataset.value !== spices) {
+        refs.spicesPill.dataset.value = spices;
+        refs.spicesValue.textContent = spices;
+      }
+
       // Fuel: number + bar + a data-state class. The bar is a fixed-width track so a shrinking
       // fill cannot reflow the pill.
       const fuel = String(Math.round(state.fire.fuel));
@@ -296,6 +406,14 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       syncCards(cards, state);
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) card.sync(state, selectedStructure(state));
+      // T3: the trader face closes itself when the visit ends, so a trader who walks away never
+      // leaves two live trade buttons in the popover. `tradesLeft` reaching 0 is not a close —
+      // the trader is still standing there, and the buttons simply go grey — so only the sim's
+      // own phase ends the mode.
+      if (traderMode) {
+        if (state.visitor.phase === 'visiting') syncTrader(state);
+        else closeTraderFace();
+      }
 
       // Batch 4: the popover's `Favor:` line for the selected villager. `visibility` (not the
       // `hidden` attribute) keeps the reserved slot in the layout — the markup reserves two
@@ -321,13 +439,19 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       }
       if (thanksName !== null && now >= thanksUntil) thanksName = null;
 
+      // T3: the trader slot is an edge too, for the same reason the thanks window is — a visit is
+      // time-boxed, so a 10 s cadence could announce a trader who has already left, or leave
+      // "A trader is visiting!" up long after they walked off.
+      const visitingNow = state.visitor.phase === 'visiting';
+
       // B1 rotating hint: recompute on a slow clock, then write only on a real change — two
       // guards, so the line cannot flicker and the DOM is untouched on every other frame.
       // M6: the thanks window's open and close edges also force an immediate recompute — the
       // window is shorter than the cadence, so waiting could miss "delighted!" entirely. The
       // clock is wall time because UIHandle.render(state) carries no dtMs (DESIGN §3).
-      if (hintRecomputeDue(now, hintDueAt, thanksBefore, thanksName)) {
+      if (hintRecomputeDue(now, hintDueAt, thanksBefore, thanksName, visitingBefore, visitingNow)) {
         hintDueAt = now + HINT_INTERVAL_MS;
+        visitingBefore = visitingNow;
         const line = villageLine(state, thanksName);
         if (line !== lastHint) {
           lastHint = line;
@@ -348,6 +472,20 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         return;
       }
       applyStructureSelection(structureId, lastState);
+    },
+    selectTrader(on = true): void {
+      if (on === false) {
+        // Nothing to read from yet, but the request is still remembered — a close that arrives
+        // before the first render must not be answered by a later stale open.
+        pendingTrader = false;
+        if (lastState) closeTraderFace();
+        return;
+      }
+      if (!lastState) {
+        pendingTrader = true;
+        return;
+      }
+      applyTraderSelection(lastState);
     },
     dispose(): void {
       list.removeEventListener('click', onListClick);

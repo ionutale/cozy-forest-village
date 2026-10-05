@@ -1,16 +1,21 @@
 // The UI's static markup: one template, the inline SVG icons, and the DOM lookups. Everything
 // here runs once per initUI() — nothing in this file is on the per-frame path (WD1).
 
-import { DEFAULT_HINT, TASK_LABELS } from './derive';
+import { DEFAULT_HINT, TASK_LABELS, TRADE_LABELS, type TradeKind } from './derive';
 import type { TaskId } from '../sim';
 
 /** Task button order in the 2×3 popover grid. */
 export const TASK_ORDER: ReadonlyArray<TaskId> = ['chop', 'berries', 'rest', 'tend', 'cook'];
 
+/** T3: trade button order in the trader face — the cheaper exchange first. */
+export const TRADE_ORDER: ReadonlyArray<TradeKind> = ['berries', 'spice'];
+
 export const ICONS = {
   wood: `<svg class="pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="8" width="14" height="8" rx="4"/><path d="M17 9v6"/><path d="M7 12h3"/></svg>`,
   berries: `<svg class="pill-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="10" cy="15" r="5.5"/><circle cx="17" cy="16.5" r="4" opacity=".7"/><path d="M11 8c2.6-2.4 5.6-1.6 5.6-1.6s-.4 3.2-2.9 3.9c-2.4.6-2.7-2.3-2.7-2.3Z"/></svg>`,
   fire: `<svg class="pill-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c1.6 3.4.4 5.2-1.4 6.9C8.4 11 6.5 12.6 6.5 15.5A5.5 5.5 0 0 0 12 21a5.5 5.5 0 0 0 5.5-5.5c0-2.4-1.3-4.2-2.7-5.6-.6 1-1.4 1.6-2.3 1.8.9-3.6-.3-6.9-.5-9.7Z"/></svg>`,
+  /** T3: the spice jar — a stoppered pot, same stroke-free filled register as the berry pair. */
+  spices: `<svg class="pill-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.5 2.5h7l-.8 2.2c1.9 1.3 3.1 3.4 3.1 5.8v7.6a2.4 2.4 0 0 1-2.4 2.4H8.6a2.4 2.4 0 0 1-2.4-2.4v-7.6c0-2.4 1.2-4.5 3.1-5.8L8.5 2.5Z" opacity=".92"/><rect x="7.6" y="1.6" width="8.8" height="2.2" rx="1"/></svg>`,
 } as const;
 
 /** Batch 4: the small heart on a requester's card (tinted `--accent` at the use site). */
@@ -45,6 +50,11 @@ export function uiMarkup(): string {
           <span class="fuel-bar"><span class="fuel-fill"></span></span>
         </span>
       </div>
+      <div class="pill" data-res="spices" data-value="0">
+        ${ICONS.spices}
+        <span class="pill-label">Spices</span>
+        <span class="pill-value">0</span>
+      </div>
       <button class="reset-btn" type="button" data-armed="false" aria-label="Start a fresh village">⟲</button>
     </div>
     <aside id="villager-panel" class="panel">
@@ -53,7 +63,10 @@ export function uiMarkup(): string {
         <p class="panel-hint">${DEFAULT_HINT}</p>
       </div>
       <div id="villager-list"></div>
-      <div id="task-popover" hidden>
+      <!-- The data-face attribute is the popover's face switch: none | villager | structure |
+           trader. Only the trader face hides the shared villager chrome (see ui.css), so the face
+           that owns the task grid is stated in one place rather than toggled per open. -->
+      <div id="task-popover" data-face="none" hidden>
         <p class="popover-title"></p>
         <p class="favor-line" style="margin:0; min-height:2.4em; color:var(--ink-soft); font-size:12.5px; font-weight:600; visibility:hidden"></p>
         <div class="task-grid">
@@ -70,6 +83,15 @@ export function uiMarkup(): string {
           <button class="build-btn" type="button" data-build aria-disabled="true">Build</button>
           <p class="structure-short"></p>
           <p class="structure-status"></p>
+        </div>
+        <!-- T3: the popover's third face — the trader. Same zone 3; only one face is ever shown,
+             and the mode closes itself on deselect, ground click, or the end of the visit. -->
+        <div id="trader-card" hidden>
+          <p class="trades-left"></p>
+          ${TRADE_ORDER.map(
+            (kind) =>
+              `<button class="trade-btn" type="button" data-trade="${kind}" aria-disabled="true">${TRADE_LABELS[kind]}</button>`,
+          ).join('')}
         </div>
       </div>
     </aside>
@@ -100,6 +122,13 @@ export interface UiRefs {
   woodValue: HTMLElement;
   berriesPill: HTMLElement;
   berriesValue: HTMLElement;
+  /** T3: the fourth HUD pill and its value node. */
+  spicesPill: HTMLElement;
+  spicesValue: HTMLElement;
+  /** T3: the popover's trader face — two trade buttons plus the "Trades left" line. */
+  traderCard: HTMLElement;
+  tradesLeft: HTMLElement;
+  tradeBtns: HTMLButtonElement[];
 }
 
 export function bindRefs(root: HTMLElement): UiRefs {
@@ -107,6 +136,8 @@ export function bindRefs(root: HTMLElement): UiRefs {
   const fuelPill = must<HTMLElement>(root, '#hud [data-res="fuel"]');
   const woodPill = must<HTMLElement>(root, '#hud [data-res="wood"]');
   const berriesPill = must<HTMLElement>(root, '#hud [data-res="berries"]');
+  const spicesPill = must<HTMLElement>(root, '#hud [data-res="spices"]');
+  const traderCard = must<HTMLElement>(root, '#trader-card');
   return {
     list: must<HTMLElement>(root, '#villager-list'),
     popover: must<HTMLElement>(root, '#task-popover'),
@@ -129,6 +160,13 @@ export function bindRefs(root: HTMLElement): UiRefs {
     woodValue: must<HTMLElement>(woodPill, '.pill-value'),
     berriesPill,
     berriesValue: must<HTMLElement>(berriesPill, '.pill-value'),
+    spicesPill,
+    spicesValue: must<HTMLElement>(spicesPill, '.pill-value'),
+    traderCard,
+    tradesLeft: must<HTMLElement>(traderCard, '.trades-left'),
+    // Resolved once, at init: the trade buttons are the only `.trade-btn`s the UI owns, and the
+    // per-frame disabled sync must not re-run a query.
+    tradeBtns: Array.from(traderCard.querySelectorAll<HTMLButtonElement>('.trade-btn')),
   };
 }
 

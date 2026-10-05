@@ -8,7 +8,7 @@
 import type { GameState, Structure } from '../sim';
 import { COOK_BERRIES, COOK_WOOD, STRUCTURE_COST } from '../sim';
 import { costIcon, type UiRefs } from './markup';
-import { secondsToBerry } from './derive';
+import { potHeartySuffix, secondsToBerry } from './derive';
 
 /** Everything the card displays, resolved. Nothing else reaches the DOM. */
 export interface StructureCardView {
@@ -39,7 +39,10 @@ export function structureCardView(state: GameState, structure: Structure | undef
     let status = 'Built';
     if (structure.kind === 'pot') {
       // A1: name the recipe, so the meal count has a "what does it cost me" next to it.
-      status = `Meals: ${state.pot.meals} · ${COOK_BERRIES} berries + ${COOK_WOOD} wood each`;
+      // T3: the suffix is derived, not written here, so the "hearty" clause appears in exactly
+      // the state a cook would actually eat heartily (pot built and a spice in store) and its
+      // leading ` · ` keeps the append a bare concatenation.
+      status = `Meals: ${state.pot.meals} · ${COOK_BERRIES} berries + ${COOK_WOOD} wood each${potHeartySuffix(state)}`;
     } else if (structure.kind === 'garden') {
       status = `Growing… ${secondsToBerry(state.gardenMs)}s`;
     }

@@ -10,6 +10,8 @@ import {
   DEFAULT_HINT,
   STRUCTURE_NAMES,
   THANK_YOU_MS,
+  TRADE_LABELS,
+  TRADER_HINT,
   cardLabel,
   delightText,
   favorLine,
@@ -20,7 +22,10 @@ import {
   firstById,
   firstFavorDoneVillagerId,
   hintRecomputeDue,
+  potHeartySuffix,
   secondsToBerry,
+  tradeDisabled,
+  traderHintLine,
   villageLine,
   villagersNeedingCards,
 } from './derive';
@@ -55,7 +60,7 @@ function state(over: Partial<GameState> = {}): GameState {
   return {
     tick: 0,
     seed: 1,
-    resources: { wood: 0, berries: 0 },
+    resources: { wood: 0, berries: 0, spices: 0 },
     villagers: [],
     nodes: [],
     structures: [],
@@ -67,9 +72,22 @@ function state(over: Partial<GameState> = {}): GameState {
     favors: favors(),
     // H1 added `arrivals` to GameState (batch 6 walk-ins); the fixtures default it empty.
     arrivals: [],
+    // T1 added `visitor` (batch 7 trader's visit schedule); absent or away until a test says so.
+    visitor: AWAY,
     ...over,
   };
 }
+
+/** T1's `Visitor`, away — the state a fresh village (and every pre-trader save) starts in. */
+const AWAY: GameState['visitor'] = { phase: 'away', inMs: 0, visitMs: 0, tradesLeft: 0 };
+
+/** T1's `Visitor`, mid-visit with `tradesLeft` trades still on the table. */
+function visiting(tradesLeft = 3): GameState['visitor'] {
+  return { phase: 'visiting', inMs: 0, visitMs: 45_000, tradesLeft };
+}
+
+/** A pot that is built, so the pot status line is the one being read. */
+const POT_BUILT = [{ id: 'pot-1', kind: 'pot' as const, pos: { x: 0, z: 0 }, built: true }];
 
 const COOKING = villager('v1', { state: 'working', task: 'cook' });
 const FED = villager('v1', { fedMs: 30_000 });
@@ -687,5 +705,151 @@ describe('index 8+ — newcomers resolve through the normal path (M3)', () => {
         `Favor: ${favorText(want ?? { kind: 'gather', count: 6 }, name)} ${favorProgressText(want ?? { kind: 'gather', count: 6 }, 2)}`,
       );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T3 (batch 7, traders → spices): the hint slot, the trade gate, the pot suffix.
+// ---------------------------------------------------------------------------
+
+describe('traderHintLine — the hint slot (T3)', () => {
+  it('reads "A trader is visiting!" only while the visit is on', () => {
+    expect(traderHintLine(state({ visitor: visiting() }))).toBe('A trader is visiting!');
+    expect(traderHintLine(state())).toBeNull();
+    expect(traderHintLine(state({ visitor: AWAY }))).toBeNull();
+  });
+
+  it('the copy is the binding string, so the UI and the test cannot drift apart', () => {
+    expect(TRADER_HINT).toBe('A trader is visiting!');
+  });
+
+  it('a visiting trader with trades spent still reads visiting — the slot is phase-driven', () => {
+    expect(traderHintLine(state({ visitor: visiting(0) }))).toBe('A trader is visiting!');
+  });
+
+  it('priority: embers > (thanks | favor) > trader > dimming > …', () => {
+    const visitingState = state({ visitor: visiting() });
+    // 1. embers outranks everything, including the trader.
+    expect(villageLine(state({ visitor: visiting(), fire: { fuel: 0, max: 100 } }), null)).toBe(
+      'Only embers left — someone should tend the fire.',
+    );
+    // 2. thanks outranks the trader.
+    expect(villageLine(visitingState, 'Fern')).toBe('Fern is delighted!');
+    // 3. favor outranks the trader.
+    expect(
+      villageLine(
+        state({ visitor: visiting(), villagers: [villager('v1')], favors: favors([{ active: true }]) }),
+        null,
+      ),
+    ).toBe('V1 would love a warm meal (0/1).');
+    // 4. the trader outranks dimming.
+    expect(villageLine(state({ visitor: visiting(), fire: { fuel: 20, max: 100 } }), null)).toBe(TRADER_HINT);
+    // 5. and outranks the ordinary slots below dimming too.
+    expect(villageLine(state({ visitor: visiting(), pot: { meals: 2 } }), null)).toBe(TRADER_HINT);
+    expect(villageLine(state({ visitor: visiting(), fire: { fuel: 90, max: 100 } }), null)).toBe(TRADER_HINT);
+  });
+
+  it('returns to the next slot the moment the visit ends (the "yields … returning after" half)', () => {
+    const away = state({ visitor: AWAY, fire: { fuel: 20, max: 100 } });
+    expect(villageLine(away, null)).toBe('The fire is dimming.');
+    expect(villageLine(state({ visitor: AWAY, pot: { meals: 2 } }), null)).toBe('Meals are ready for a rest.');
+    // 50 % is steady: past dimming, short of roaring, and nothing else to say.
+    expect(villageLine(state({ visitor: AWAY, fire: { fuel: 50, max: 100 } }), null)).toBe(DEFAULT_HINT);
+  });
+});
+
+describe('hintRecomputeDue — the trader edges are edges too (T3)', () => {
+  it('recomputes immediately when the trader arrives', () => {
+    expect(hintRecomputeDue(1000, 9000, null, null, false, true)).toBe(true);
+  });
+
+  it('recomputes immediately when the visit ends, so the slot does not linger 10 s', () => {
+    expect(hintRecomputeDue(1000, 9000, null, null, true, false)).toBe(true);
+  });
+
+  it('the existing thanks/cadence behaviour is unchanged when the trader is steady', () => {
+    expect(hintRecomputeDue(1000, 9000, null, null, true, true)).toBe(false);
+    expect(hintRecomputeDue(9000, 9000, null, null, false, false)).toBe(true);
+    expect(hintRecomputeDue(1000, 9000, null, 'Fern')).toBe(true);
+  });
+});
+
+describe('tradeDisabled — the two trade buttons (T3)', () => {
+  const rich = state({ visitor: visiting(3), resources: { wood: 99, berries: 99, spices: 0 } });
+
+  it('is enabled while the trader is here with the stock to back it', () => {
+    expect(tradeDisabled(rich, 'berries')).toBe(false);
+    expect(tradeDisabled(rich, 'spice')).toBe(false);
+  });
+
+  it('is disabled once the visit is over, for both kinds', () => {
+    const away = state({ visitor: AWAY, resources: { wood: 99, berries: 99, spices: 0 } });
+    expect(tradeDisabled(away, 'berries')).toBe(true);
+    expect(tradeDisabled(away, 'spice')).toBe(true);
+  });
+
+  it('is disabled when the trader has no trades left', () => {
+    const spent = state({ visitor: visiting(0), resources: { wood: 99, berries: 99, spices: 0 } });
+    expect(tradeDisabled(spent, 'berries')).toBe(true);
+    expect(tradeDisabled(spent, 'spice')).toBe(true);
+  });
+
+  it('berries trades 5 wood for 4 berries: disabled below 5 wood, enabled at exactly 5', () => {
+    expect(tradeDisabled(state({ visitor: visiting(), resources: { wood: 4, berries: 99, spices: 0 } }), 'berries')).toBe(true);
+    expect(tradeDisabled(state({ visitor: visiting(), resources: { wood: 5, berries: 0, spices: 0 } }), 'berries')).toBe(false);
+  });
+
+  it('spice trades 6 berries for 1 spice: disabled below 6 berries, enabled at exactly 6', () => {
+    expect(tradeDisabled(state({ visitor: visiting(), resources: { wood: 99, berries: 5, spices: 0 } }), 'spice')).toBe(true);
+    expect(tradeDisabled(state({ visitor: visiting(), resources: { wood: 0, berries: 6, spices: 0 } }), 'spice')).toBe(false);
+  });
+
+  it('each kind is gated only on its own price — plentiful wood does not unlock spice', () => {
+    const noBerries = state({ visitor: visiting(), resources: { wood: 99, berries: 0, spices: 3 } });
+    expect(tradeDisabled(noBerries, 'berries')).toBe(false);
+    expect(tradeDisabled(noBerries, 'spice')).toBe(true);
+  });
+
+  it('having spices already never blocks buying more', () => {
+    expect(tradeDisabled(state({ visitor: visiting(), resources: { wood: 9, berries: 9, spices: 9 } }), 'spice')).toBe(false);
+  });
+});
+
+describe('TRADE_LABELS — the two button captions (T3)', () => {
+  it('states both exchanges the way the spec words them', () => {
+    expect(TRADE_LABELS.berries).toBe('5 wood → 4 berries');
+    expect(TRADE_LABELS.spice).toBe('6 berries → 1 spice');
+  });
+});
+
+describe('potHeartySuffix — the pot line suffix (T3)', () => {
+  const pot = state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 0 } });
+
+  it('is present only when the pot is built and spices remain', () => {
+    expect(potHeartySuffix(state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 1 } }))).toBe(
+      ' · hearty while spices last',
+    );
+  });
+
+  it('is absent with no spices, even though the pot is built', () => {
+    expect(potHeartySuffix(pot)).toBe('');
+    expect(potHeartySuffix(state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 0 } }))).toBe('');
+  });
+
+  it('mirrors the sim\'s own > 0 test, so a fractional count from a bad save still reads hearty', () => {
+    expect(potHeartySuffix(state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 0.4 } }))).toBe(
+      ' · hearty while spices last',
+    );
+  });
+
+  it('is absent when the pot is not built, however many spices are in store', () => {
+    const ghost = state({ structures: [], resources: { wood: 0, berries: 0, spices: 5 } });
+    expect(potHeartySuffix(ghost)).toBe('');
+  });
+
+  it('starts with the separator the pot status line already ends in, so appending is safe', () => {
+    expect(potHeartySuffix(state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 2 } }))).toMatch(
+      /^ · /,
+    );
   });
 });

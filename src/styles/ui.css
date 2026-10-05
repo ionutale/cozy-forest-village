@@ -48,6 +48,13 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
   color: var(--berry);
 }
 
+/* T3: the fourth pill rides the berry hue one step warmer, so the HUD reads as one register
+   rather than a new colour system for one resource. */
+.pill[data-res='spices'] .pill-icon,
+.pill[data-res='spices'] .pill-value {
+  color: var(--accent);
+}
+
 /* Yield pulse: a whisper of feedback when wood or berries come in. Retrigger-safe — the
    class is re-added each yield and the forced reflow in ui/index.ts restarts the animation.
    Transform only, so nothing reflows around it. */
@@ -292,6 +299,53 @@ to { opacity: 1; transform: translateY(0); }
 .structure-status:empty { display: none; }
 
 .structure-status { margin: 0; color: var(--ink-soft); font-size: 13px; font-weight: 700; }
+
+/* T3d: the trader face owns the title, the trades line and the two buttons — nothing else
+   (DESIGN §6 batch 7). The task grid and the favor line belong to the villager face, so this face
+   switches them off with one attribute instead of toggling `hidden` on siblings. Two reasons that
+   indirection was avoided: `.task-grid { display: grid }` is an author rule, so it beats the UA
+   `[hidden] { display: none }` and a `hidden` attribute there does nothing at all; and the favor
+   line reserves `min-height: 2.4em`, so hiding it by `visibility` (what the pump does when no
+   villager is selected) leaves a blank gap where the trades should start. The structure face is
+   deliberately untouched. */
+#task-popover[data-face='trader'] .task-grid,
+#task-popover[data-face='trader'] .favor-line { display: none; }
+
+/* T3: the trader face of the popover — same zone, same panel register as the task grid and the
+   structure card. Stacked rather than gridded: two exchanges read as a short list, and the
+   buttons carry the full price, so no width gymnastics are needed. */
+#trader-card { display: flex; flex-direction: column; gap: 6px; }
+
+#trader-card[hidden] { display: none; }
+
+.trades-left { margin: 0; color: var(--ink-soft); font-size: 12.5px; font-weight: 600; }
+
+.trade-btn {
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.trade-btn:not([aria-disabled='true']):hover { filter: brightness(1.06); }
+
+/* T3d: a disabled trade button has to *read* disabled. Opacity alone is not enough here: the
+   enabled state is a saturated accent fill, and a saturated block at 45% over cream still looks
+   like a live button (the live capture showed exactly that at 0 trades left). So the disabled
+   state drops to the same neutral treatment the disabled task buttons use — same palette, no new
+   colours — and keeps the opacity for parity. */
+.trade-btn[aria-disabled='true'] {
+  color: var(--ink-soft);
+  background: var(--paper-2);
+  border-color: var(--border);
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: default;
+}
 
 .build-btn {
   padding: 8px 12px;

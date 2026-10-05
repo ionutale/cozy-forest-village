@@ -109,7 +109,9 @@ function state(over: Partial<GameState> = {}): GameState {
   return {
     tick: 0,
     seed: 1,
-    resources: { wood: 0, berries: 0 },
+    // T1 made `resources.spices` required (batch 7); this fixture predates it, and the default
+    // is 0 so every existing case's pot status reads exactly as it did before.
+    resources: { wood: 0, berries: 0, spices: 0 },
     villagers: [],
     nodes: [],
     structures: [],
@@ -121,6 +123,9 @@ function state(over: Partial<GameState> = {}): GameState {
     favors: { byVillager: [], nextOfferMs: 0 },
     // H1 made `arrivals` required on GameState (batch 6 walk-ins); this fixture predates it.
     arrivals: [],
+    // T1 made `visitor` required on GameState (batch 7 trader's visit schedule); away, matching
+    // the fresh-village default, so the pot status line is unaffected by any T3 suffix.
+    visitor: { phase: 'away', inMs: 0, visitMs: 0, tradesLeft: 0 },
     ...over,
   };
 }
@@ -174,8 +179,8 @@ describe('structureCardView — signatures track what the card displays', () => 
   it('every key the builder produces is named in the signature, on every branch', () => {
     const cases: GameState[] = [
       state(),
-      state({ resources: { wood: 15, berries: 0 } }), // unbuilt, affordable
-      state({ resources: { wood: 0, berries: 5 } }), // unbuilt, short both ways
+      state({ resources: { wood: 15, berries: 0, spices: 0 } }), // unbuilt, affordable
+      state({ resources: { wood: 0, berries: 5, spices: 0 } }), // unbuilt, short both ways
       state({ pot: { meals: 3 } }), // built branches read more state
       state({ gardenMs: 7000 }),
     ];
@@ -253,7 +258,7 @@ describe('createStructureCard — one view feeds both the guard and the renderer
     expect(refs.structureShort.textContent).toBe('tampered');
 
     // A displayed change repaints, and the paint is still exactly the builder's view.
-    const rich = state({ resources: { wood: 15, berries: 0 } });
+    const rich = state({ resources: { wood: 15, berries: 0, spices: 0 } });
     card.sync(rich, bench);
     expect(renderedFrom(refs)).toEqual(render(structureCardView(rich, bench)));
     expect(refs.structureShort.textContent).toBe('');
