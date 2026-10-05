@@ -73,6 +73,7 @@ export type FavorWant =
   | { kind: 'fire'; ms: number };                       // ms accumulated with fuel ≥ 33
 export interface FavorProgress { step: number; active: boolean; progress: number }
 export interface FavorsState { byVillager: FavorProgress[]; nextOfferMs: number }
+export interface Arrival { structureId: string; inMs: number; castIndex: number } // batch 6: pending walk-ins
 
 export interface GameState {
   tick: number;              // increments once per tick() call
@@ -87,6 +88,7 @@ export interface GameState {
   events: SimEvent[];        // events from the latest tick; cleared at the start of each tick
   pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
   favors: FavorsState;       // batch 4: per-villager favor chains (binding rules in §3.2)
+  arrivals: Arrival[];       // batch 6: pending newcomer walk-ins (binding rules in §3.2)
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -101,6 +103,10 @@ export const MAX_ACTIVE_FAVORS: number;
 export const CHAIN_LENGTH: number;
 export function createFavors(villagerCount: number): FavorsState;
 export function favorWantFor(villagerIndex: number, step: number): FavorWant | null;
+export const HUT_SETTLE_MS: number;
+export const VILLAGE_CAP: number;
+export const HUT_PLOTS: readonly { id: string; pos: Vec2 }[];
+export const NEWCOMER_CAST: readonly { name: string; hatColor: string }[];
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -157,7 +163,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 
 Contract rules: other layers import **types**, the read-only data constants
 (`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`, `FIRST_OFFER_MS`,
-`NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`) and the `createFavors`/`favorWantFor`
+`NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`, `HUT_PLOTS`, `HUT_SETTLE_MS`,
+`VILLAGE_CAP`, `NEWCOMER_CAST`) and the `createFavors`/`favorWantFor`
 factories from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
@@ -239,6 +246,13 @@ factories from
   `{eat, self, 1}`; step 2 even index `{gather, 6}` / odd `{chop, 4}`; step 3 `index % 3` →
   `{eat, any, 3}` / `{build, 1}` / `{fire, 120000}`. The "delighted!" hint window after a completion
   is UI-side only: **`THANK_YOU_MS = 6000`**.
+- **Huts** (batch 6): four plots `hut-1…hut-4` (new kind `'hut'`) on ring **r = 7.6** at
+  45°/135°/225°/315°, cost **30 wood + 10 berries**. Completing a hut schedules one arrival
+  (`castIndex = (villagers.length − 8) + arrivals.length`) with a **90000 ms** settle; at 0 the
+  newcomer appends at `EDGE_SPAWN (0, −12)` in state `'arriving'` (assignments refused), walks the
+  existing steering to the hut, then idles. Cast in completion order: Lily `#e3b7c4` · Rowan
+  `#b03a3a` · Sage `#a8bd86` · Wren `#7d6a52`. Roster cap **12**; a newcomer's favor record appends
+  in the same tick (arrays never desync).
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
@@ -249,9 +263,9 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 
 ### Persistence (save schema)
 
-`VERSION = 2` (batch 4). v2 = v1 + `favors`; **v1 saves migrate additively on load** — the village
-survives untouched, favor chains start fresh (`nextOfferMs = FIRST_OFFER_MS`). Unknown versions or
-implausible shapes → fresh game (`loadGame` returns null; never throws).
+`VERSION = 3` (batch 6; v2 was batch 4). **Migrations chain: v1 → v2 → v3.** v2 → v3 appends the
+four `hut-*` structures (unbuilt) and `arrivals: []`; the roster is untouched on load. Unknown
+versions or implausible shapes → fresh game (`loadGame` returns null; never throws).
 
 ### Testability hook (all layers)
 
@@ -313,7 +327,9 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
   same popover (ghost → Build; built → status), and a two-step reset (⟲) in the HUD.
 - Batch 4 explicitly allows, *inside* the three zones: a requester heart glyph on the villager card
   (zone 2), favor/delight text in the panel hint (zone 2), and a reserved `Favor:` line above the task
-  grid in the popover (zone 3). Nothing else.
+  grid in the popover (zone 3).
+- Batch 6 explicitly allows, *inside* the three zones: four hut plots and the dynamic villager-card
+  reconcile + panel list scroll (zone 2), and the "Arriving…" state on cards. Nothing else.
 
 ## 7. Validation protocol (orchestrator)
 
