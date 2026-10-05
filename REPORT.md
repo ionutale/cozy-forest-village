@@ -80,6 +80,7 @@ the user re-instructs otherwise.
 | T2 | Batch-7: persist v4 chain | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 254/254 ✅ (persist 38/38) · live: mid-visit reload resumes ✅ | 5/5 |
 | T3 | Batch-7: spices pill + trader popover face | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 3 micro-rounds (b/c/d) | 254/254 ✅ · 19 tests · live: gate table + face ✅ | 4.5/5 |
 | T4 | Batch-7: trader rig + handcart + picking + cues | ✅ complete | `opencode/space-bunny-free#xhigh` (2nd session) | 1 + 1 critical fix | 254/254 ✅ · live: 1-click pick + walk ✓ | 4/5 |
+| T-fix | Batch-7 review fix round (I1, M1, M2, M3, M5) | ✅ complete | space-bunny ×2 + muse-spark (3 parallel) | 1 | 260/260 ✅ · first render-layer test ✓ · live walk-out re-shot ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -164,6 +165,22 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-7 review fix round — 0 Critical · 1 Important · 5 Minor: 4 fixed + 1 recorded (3 parallel free models)
+- **I1 (Important, `space-bunny` render)** — the walk-out cart counter-term assumed a π turn; the real arc
+  is −135.9°, and the correct counter-term algebraically collapses to `0`: unconditional
+  `cart.rotation.y = 0` + comment truth-fix (successive micro-fixes prove the value of the review).
+  **M5** — the **first render-layer test** (`src/render/trader.test.ts`, 4 cases): downward rays at the
+  stall and the edge pin scene attachment, visibility gating and live movement; verifiably bites
+  (reverting `group.add(root)` fails exactly the two positive assertions).
+- **M1 (Minor, `space-bunny` UI)** — visit-end auto-close now clears the render ring
+  (`onSelect(null)`), so the next visit can't open with a stray lit ring. **M3** — the
+  "trader + favor + thanks simultaneously" hint-priority assertion.
+- **M2 (Minor, `muse-spark` sim)** — giant-`dt` spice single-consumption pin (adapted to a 0.5 s
+  approach + one 300 s tick; the literal sketch couldn't eat with fuel floored — documented).
+- **M4 (recorded debt)** — `src/ui/index.ts` has no DOM test; the trader-face open/close matrix stays
+  live-verified until a DOM harness exists.
+- Gates **260/260 (13 files)** · live re-run green incl. walk-out evidence `WT-trader-walkout.png`.
 
 ### 2026-10-05 — Batch-7 (traders → spices) wave complete — 4 parallel + 4 micro-rounds, 2 live-caught Criticals (free models)
 - **T1 sim** (5/5): `Visitor` schedule (first 240 000, stay 120 000, gap 360 000, walk 6 000),
