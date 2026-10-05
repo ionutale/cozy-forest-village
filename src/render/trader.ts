@@ -269,7 +269,6 @@ export function createTrader(): TraderLayer {
   part(track(new THREE.BoxGeometry(0.2, 0.2, 0.2)), kit.logMat, [0.04, CART_BED_Y + 0.13, -0.06]);
   part(track(new THREE.CylinderGeometry(0.09, 0.09, 0.2, 8)), clothMat, [-0.14, CART_BED_Y + 0.13, 0.08]);
   cart.rotation.x = CART_TILT; // the load sits back on its axle while walking
-  cart.rotation.order = 'YXZ'; // yaw (the stall turnaround) before the pitch, never after
   root.add(cart);
 
   // The shared selection ring (villagers/ring.ts) — its own group under `group`, so it does not
@@ -315,11 +314,11 @@ export function createTrader(): TraderLayer {
         armL.rotation.set(-reach * 0.5, 0, -swing);
         armR.rotation.set(-reach, 0, swing);
         head.position.y = HEAD_Y;
-        // The trader turns on the spot at the stall, so the cart is turned with them — otherwise
-        // the π yaw sweep would carry it around through the trader and leave it walking backwards.
-        // Both yaws are derived from the same `turn`, so they are always in step and the cart ends
-        // up behind them again, facing the way they walk.
-        cart.rotation.y = s.leaving ? (FIRE_FACING - s.facing) + Math.PI * s.turn : 0;
+        // The cart needs no yaw of its own: it trails at a fixed offset under `root`, so it inherits the
+        // trader's yaw and stays aligned with the walk on both legs and while parked. `rotation.y`
+        // would spin it about its own origin (its position never moves), so any counter-term here
+        // only skews the shafts off the trader's hands — I1.
+        cart.rotation.y = 0;
         // Roll is derived from the distance along the current leg, never accumulated, so it is
         // exact on a reload. The two legs restart it at 0 — invisible, the wheels are unspoked.
         const roll = (PATH_LEN * s.leg) / WHEEL_R;

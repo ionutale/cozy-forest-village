@@ -131,11 +131,55 @@ Lesson for the wave: a render layer needs a scene-graph assertion, not just a ty
 guard would have been one line in the orchestrator's live pass — count `group.children`, or project
 the stall pixel and assert a hit — and that check is now worth keeping in every subsequent render task.
 
+## Fix round 2 — batch-7 review findings I1 and M5
+
+### I1 — the walk-out cart yaw cancelled the wrong angle
+
+`s.cart.rotation.y = s.leaving ? (FIRE_FACING - s.facing) + Math.PI * s.turn : 0;` was my attempt to
+keep the cart facing the way the trader walks through the stall turnaround. The reviewer's algebra is
+right and I confirmed it against the shipped constants: `s.facing` on the walk-out leg is already
+`FIRE_FACING + angleDelta(FIRE_FACING, OUT_FACING) · turn`, so `FIRE_FACING - s.facing` is exactly
+`−angleDelta · turn` and the whole expression collapses to **`Math.PI * s.turn`** — a π stand-in for
+an arc the code never had. The cart therefore swept +180° CCW while the trader turned 135.90° CW
+(≈316° relative rotation in ~1 s), and came to rest 44.10° askew with the shafts pointing off the
+trader rather than at their hands.
+
+Fixed to an unconditional `cart.rotation.y = 0;`. The premise behind the old comment was wrong in the
+same way: `cart.position` is fixed at root-local `(0, 0, CART_Z)`, so a yaw spins the cart about its
+*own* origin — the position sweep is identical either way, and `0` never carried anything "around
+through the trader". With `0` the cart simply trails aligned on both legs and while parked, which is
+what walk-in and the linger case already did; walk-out was the odd leg out. The stale comment is
+replaced with the real reason, and the now-pointless `cart.rotation.order = 'YXZ'` line is gone (it
+only existed to order that yaw against the walk pitch).
+
+### M5 — the first render-layer test
+
+`src/render/trader.test.ts` (new) pins the load-bearing scene-graph assumptions that `tsc` and the
+suite could not see. No WebGL, no DOM: `createTrader()` builds plain three.js geometry and
+`Raycaster` is pure math over that graph, so it runs under vitest's `node` environment.
+
+- a ray at the stall (`(2.1, −3.637)` = r 4.2 @ 300°) hits while lingering at `visitMs = 12 000` —
+  the assertion that fails if `root` is ever left out of `group` again;
+- the same ray misses with `phase: 'away'`, pinning that `pick()` gates on `visible` itself (three's
+  raycaster ignores it);
+- a ray at `EDGE_SPAWN (0, −12)` hits at `visitMs = 0` and misses at `visitMs = 12 000`, pinning that
+  position is read live off the visitor block rather than parked at the spawn.
+
+One non-obvious detail the tests forced out: `Raycaster` reads `matrixWorld`, and in the app that is
+propagated by `renderer.render()` each frame. With no renderer, every object sits at the identity and
+*no* ray ever reaches the rig, so the helper calls `group.updateMatrixWorld(true)` — a faithful
+mirror of what the render loop does, not a test-only crutch.
+
+I verified the pin bites rather than assuming it: commenting `group.add(root)` back out fails exactly
+the two "should hit" assertions, and restoring it returns 4/4.
+
 ## Verification (final, all three green)
 
 - `pnpm exec tsc --noEmit` — clean.
-- `pnpm build` — clean (`tsc --noEmit` + `vite build`, 36 modules, 649 kB / 168 kB gzip).
-- `pnpm test` — **254/254 passed, 12/12 files.**
+- `pnpm build` — clean (`tsc --noEmit` + `vite build`).
+- `pnpm test` — **260/260 passed, 13/13 files.** Four of those are the new `trader.test.ts` cases;
+  the file count went 12 → 13 and two further cases appeared in concurrent agents' files in the same
+  window, so the 260 is not 254 + 4.
 
 Earlier in the task the gate was red only in concurrent agents' files (`src/persist/index.test.ts`
 still asserting `VERSION = 3` and a 2-key `resources`; `src/ui/structure-card.test.ts` fixtures missing
