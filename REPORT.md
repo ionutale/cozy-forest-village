@@ -44,7 +44,12 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | B9 | Batch-2 independent review + 20 proposals | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 1 Critical · 4 Important · 7 Minor (all real) | 5/5 |
 | B9-1 | Fix batch: sim + persist (C-level findings 1; I1–I4; M3, M4, M6, M7) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 + 3 micro-rounds (M3 geometry) | 62/62 ✅ · live: queue flush + log settle ✅ | 4.5/5 |
 | B9-2 | Fix batch: UI + render (C1; M1, M2, M5, M6-UI) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 62/62 ✅ · all three click paths ✅ · innerHTML 118→0 ✅ | 4.5/5 |
-| B9 | Batch-2 independent review + 20 proposals | queued | — | — | — | — |
+| A1 | Batch-3 UI polish + sim constant export (A1b) | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round | 62/62 ✅ · live: pulse/tint/recipe/countdown ✅ | 4.5/5 |
+| A2 | Batch-3 warmth disc | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 62/62 ✅ · visuals high/low fuel ✅ · +1 call ✅ | 5/5 |
+| A3 | Batch-3 audio: wind gusts + cook streaks | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 62/62 ✅ · dormant pre-gesture ✅ · console clean ✅ | 4.5/5 |
+| A4 | Batch-3 hover cursor cue | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | 62/62 ✅ · live cursor pointer/'' ✅ | 4.5/5 |
+| A5 | Batch-3 structures: meals read + merge/instance | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 62/62 ✅ · calls 97/111 (was 121/145+) ✅ · picks 8/8 ✅ | 5/5 |
+| A6 | Batch-3 split `villagers.ts` (5 modules) | ✅ complete | `opencode/ling-3.1-flash-free` | 1 | 62/62 ✅ · public API unchanged ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -79,6 +84,10 @@ one remaining build warning (chunk > 500 kB, three.js).
 
 Curated from B9's 20 proposals (the review-era bugs it found are fixed, not listed). User playtests,
 adds their own, picks ~5–6 for batch 3.
+
+**Wave A shipped (2026-10-05): #1–#9 + the `villagers.ts` split + cook-streak blips (A3).**
+Still open for Wave B: **#10** rotating village line, `ui/index.ts` split + signature-guard
+hardening, 3D highlight for the selected structure, plus the honourable mentions below.
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -119,7 +128,38 @@ a 3D highlight for the selected structure.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
-### 2026-10-05 — B9 complete + fix batches B9-1 / B9-2 (commit pending)
+### 2026-10-05 — Batch-3 Wave A complete — 6 parallel tasks (commits per task in git)
+Parallel wave: six file-disjoint tasks dispatched simultaneously; implementers never commit; the
+orchestrator validated the frozen tree (tsc/build · 62/62 · live browser pass on :5188).
+- **A1** UI polish (`space-bunny#xhigh`): fuel-pill pulse on `fuel-add`, well-fed tint (transition-only),
+  pot recipe line, garden countdown (the *rendered* seconds go in the M1 signature — repaints 1/s, not
+  per frame). Micro-round A1b: sim exports `GARDEN_PERIOD_MS`/`COOK_BERRIES`/`COOK_WOOD`; the UI's
+  mirrored constants deleted — the M6 drift lesson applied pre-emptively. 1 + 1; 4.5/5.
+- **A2** warmth disc (`muse-spark#xhigh`): one unit-circle mesh, scale 1.2→5.0 ∝ fuel, opacity ≤ 0.11,
+  breathing with the exact flame flicker value; zero per-frame allocations; +1 draw call. Visuals
+  verified high/low (`WA-warmth-*.png`). 5/5.
+- **A3** audio (`mimo-v2.6-flash-free`): wind-gust random walk on the bed gain via its **own PRNG
+  stream** (existing chirp/crackle schedule byte-identical), cook-streak blip +1 semitone/step, cap +4,
+  12 s reset; lazy-start/dispose preserved; room to hear it is the human check. 4.5/5.
+- **A4** hover cue (`longcat-2.5-preview-free`): `pickHover` (shared-scratch raycast, villager-first)
+  + pointermove throttled at 80 ms/2 px, skipped while dragging; cursor verified `pointer`/`''` live;
+  DESIGN §3 contract updated by the orchestrator. 4.5/5.
+- **A5** structures pack (`space-bunny#xhigh`): meals-past-six read (second bowl column from 7, ×1.15
+  top-bowl step, thicker steam), static parts merged per kind into one vertex-coloured mesh, animated
+  cues instanced. **Calls: fresh 121→97, all-built 145+→111** (target ≤115 ✅). Picking preserved by
+  construction; its differential harness caught and fixed a real cached-`boundingSphere` bug (risen
+  steam became unpickable) — re-verified across 34,812 sampled poses. 5/5.
+- **A6** split (`ling-3.1-flash-free`): 531-line `villagers.ts` → 5 modules (index/rig/motion/hearts/
+  ring), public API byte-identical, tend pose + hearts + ring intact. 4.5/5.
+- **Orchestrator live evidence**: picks 8/8 through the real click chain (ghost pot + all 7 built;
+  garden needed a low probe ray — flat geometry, test artifact), ground clears both halves, villager
+  pick + ring after the split, fed tint on/off, fuel pulse caught, recipe + countdown strings live
+  (`Growing… 23s → 21s`), audio dormant at load (starts on gesture), console clean (synthetic-pointer
+  artifact only). Evidence `docs/validation/WA-*.png`.
+- Parallel-wave workflow ruling: file-disjoint waves + one freeze point for validation scaled well
+  (6 tasks ≈ 1 serialization window); keep for Wave B. Cost if wrong: none observed.
+
+### 2026-10-05 — B9 complete + fix batches B9-1 / B9-2 (commit 8176871)
 - Review (`mimo-v2.6-flash-free`, 5/5): 1 Critical, 4 Important, 7 Minor — all adjudicated as real;
   contract scorecard clean; perf 120–145 calls; save round-trip verified. Report `docs/tasks/B9-report.md`.
 - Fix batch 1 (`muse-spark#xhigh`, sim + persist): pendingEvents queue (built SFX now plays),

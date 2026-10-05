@@ -82,6 +82,9 @@ export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
 export function buildStructure(state: GameState, structureId: string): boolean;
 export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berries: number }>>;
+export const GARDEN_PERIOD_MS: number;
+export const COOK_BERRIES: number;
+export const COOK_WOOD: number;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -101,6 +104,8 @@ export interface RenderHandle {
   projectVillager(villagerId: string): { x: number; y: number } | null;
   /** B5: screen-space hit test against structure meshes. */
   pickStructure(clientX: number, clientY: number): string | null;
+  /** A4: hover cue — true over a villager (checked first) or a structure; read-only (no selection/camera side effects). */
+  pickHover(clientX: number, clientY: number): boolean;
 }
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
@@ -130,9 +135,10 @@ export interface UIHandle {
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
 
-Contract rules: other layers import **types** and the read-only `STRUCTURE_COST` data table from
-`../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
-`world.ts`) are implementation detail.
+Contract rules: other layers import **types** and the read-only data constants
+(`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`) from `../sim`, and **nothing
+else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are
+implementation detail.
 
 ### 3.1 Simulation rules (slice 1 — binding numbers)
 
