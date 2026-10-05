@@ -100,6 +100,7 @@ export const NEXT_OFFER_GAP_MS: number;
 export const MAX_ACTIVE_FAVORS: number;
 export const CHAIN_LENGTH: number;
 export function createFavors(villagerCount: number): FavorsState;
+export function favorWantFor(villagerIndex: number, step: number): FavorWant | null;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -154,7 +155,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 
 Contract rules: other layers import **types**, the read-only data constants
 (`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`, `FIRST_OFFER_MS`,
-`NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`) and the `createFavors` factory from
+`NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`) and the `createFavors`/`favorWantFor`
+factories from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
 

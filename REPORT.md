@@ -19,6 +19,10 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 `muse-spark-1.3-contributor` $0.10/$0.20 · `gpt-6-luna` $0.10/$0.50 · `mimo-v2.6-flash` $0.14/$0.28 ·
 `hy3` $0.14/$0.58 · `qwen3.8-flash` $0.15/$0.47 · `glm-5.3-flash` $0.15/$0.50 · `deepseek-v4-flash` $0.15/$0.60.
 
+Batch-4 favor wave (2026-10-05): executed on `opencode-go/deepseek-v4.1-flash#max` by **explicit user
+instruction** (4-way parallel wave + 1 micro-round). The free-roster rules remain the default unless
+the user re-instructs otherwise.
+
 ## Task board
 
 | # | Task | Status | Model | Attempts | Validation | Score |
@@ -56,6 +60,10 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | WD1 | Batch-3 Wave D: UI split + guard + tests | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 91/91 ✅ · markup byte-identical ✅ · caught 2 real bugs | 4.5/5 |
 | WD2 | Batch-3 Wave D: cue → `selectionCue.ts` | ✅ complete | `opencode/mimo-v2.6-flash-free` (fb; ling rate-limited) | 1 | 91/91 ✅ · differential 376 frames, 0 mismatches ✅ | 4.5/5 |
 | WD3 | Batch-3 Wave D: obstacle-aware walking | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 91/91 ✅ · head-on 0.620 vs 0.57 bar ✅ · live walk clean ✅ | 4.5/5 |
+| F1 | Batch-4: favor sim (chains, cadence, completion, events) | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · 17 new tests ✅ · live: organic offer + completion ✅ | 5/5 |
+| F2 | Batch-4: save schema v2 + additive v1 migration | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · 7 new tests ✅ · live reload retains favors ✅ | 4.5/5 |
+| F3 | Batch-4: favor UI (hint priority, card heart, popover) | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 + 1 micro-round (F3b) | 139/139 ✅ · 24 new tests ✅ · live ✅ | 4.5/5 |
+| F4 | Batch-4: favor audio + pooled hearts | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · live wiring ✅ · audible = human | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -95,8 +103,8 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: save v2 migrations (planned as F2 of the favor wave), the optional structure-card
-signature test WD1 proved and deleted, vite chunk warning (cosmetic).
+Remaining: the optional structure-card signature test WD1 proved and deleted, vite chunk warning
+(cosmetic). **Batch-4 favor chains (F1–F4) shipped 2026-10-05** — see the log.
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -136,6 +144,27 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-4 favor wave — 4 parallel tasks + 1 micro-round (`opencode-go/deepseek-v4.1-flash#max`, user instruction)
+- Spec → plan → wave: DESIGN contracts amended before dispatch (state, events, 8 constants +
+  `createFavors`/`favorWantFor`, §3.2 binding rules). Reviews: F1 5/5, F2/F3/F4 4.5/5.
+- **F1 sim**: favors state + chains + cadence + completion; pure per-offer requester derive
+  (`seed ^ 0x9e3779b9 ^ worth`), `activeBefore` semantics (a favor opened at end-of-tick never
+  consumes that tick's events); 17 tests incl. every want kind, shared-event no-double-count,
+  fire-pause, retirement, and a real rest→eat integration. **Live: offers appeared organically
+  after ~2 min; the max-2 hold-at-zero was observed in the wild before any script ran.**
+- **F2 persist**: `VERSION = 2`; v1 migrates additively (village intact, fresh chains); favors shape
+  validated; 7 tests. **Live: reload retained two active favors + the 89 416 ms countdown exactly.**
+- **F3 UI**: hint priority `embers > favor > dimming > …` with progress `(n/m)`/`(m:ss)`; card heart
+  (transition-only); popover `Favor:` line; 6 s "delighted!" window; 24 new tests. Its own report
+  flagged the mirrored chain function → **F3b moved `favorWantFor` to the sim's public surface and
+  deleted the mirror** (the M6 lesson, applied within the wave).
+- **F4 feedback**: `favor-start` "hm?" + `favor-done` warm chime; priority renumber
+  (`built 10 > favor-done 9 > …`); pooled hearts burst on `favor-done` via the same eat path.
+- Orchestrator live pass (`WF-favor-offer.png`, `WF-favor-done.png`): heart only on the requester,
+  hint + popover line, completion via real eating (step→1, gap re-armed, `fedMs` set), delight
+  window then fallback to the other open favor; console clean; gates **139/139**.
+- Follow-up: independent read-only review dispatched; fix round if it finds anything.
 
 ### 2026-10-05 — Batch-3 Wave D complete — 3 parallel tasks (commits per task in git)
 - **WD1** UI split (`space-bunny#xhigh`): `ui/index.ts` 560→312 + `derive.ts` / `markup.ts` /
