@@ -19,6 +19,14 @@ export const STRUCTURE_SLOT_RADIUS = 0.9;
  * step lands essentially exactly on the slot, so settled cooks/keepers sit at
  * ≈ full slot spacing instead of arrival-slop luck. */
 export const STRUCTURE_ARRIVAL_DISTANCE = 0.02;
+/** Max visual trunk footprint radius — render trunkGeo bottom 0.36 × per-trunk
+ * scale ≤ 1.15 (≈ 0.414), rounded up. Sim nodes carry no radius (source:
+ * `src/render/environment.ts` trunkGeo + scale range). */
+export const TRUNK_RADIUS = 0.42;
+/** Trunk-avoidance steering clearance around non-destination trunk centres. */
+export const TRUNK_CLEAR_RADIUS = TRUNK_RADIUS + 0.2; // 0.62
+/** Within this distance of the arrival point, steer direct (exact slot landings). */
+export const OBSTACLE_ENDGAME_RADIUS = 1.0;
 /** Golden angle in radians — spreads rest spots evenly and deterministically. */
 const GOLDEN_ANGLE = 2.399963;
 

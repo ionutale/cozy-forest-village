@@ -14,11 +14,12 @@ import { generateWorld } from './world';
 import {
   ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
   FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
-  GARDEN_PERIOD_MS, LOG_FUEL, MOVE_SPEED, STRUCTURE_ARRIVAL_DISTANCE,
+  GARDEN_PERIOD_MS, LOG_FUEL, MOVE_SPEED, OBSTACLE_ENDGAME_RADIUS,
+  STRUCTURE_ARRIVAL_DISTANCE,
   STRUCTURE_COST as STRUCTURE_COST_TABLE,
   STRUCTURE_RING, STRUCTURE_RING_RADIUS, TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE,
-  WORK_PERIOD_MS, nearestNode, nearestStructure, restDuration, restSpot, structureSpot,
-  workSpot,
+  TRUNK_CLEAR_RADIUS, WORK_PERIOD_MS, nearestNode, nearestStructure,
+  restDuration, restSpot, structureSpot, workSpot,
 } from './tasks';
 
 /** Build costs (DESIGN.md §3.2) — the read-only source of truth other layers import. */
@@ -253,6 +254,60 @@ function segmentDistance(point: Vec2, from: Vec2, to: Vec2): number {
   return Math.hypot(from.x + dx * t - point.x, from.z + dz * t - point.z);
 }
 
+/**
+ * Obstacle-aware detour: if the straight chord from the villager to its
+ * steering target passes within trunk clearance of a non-destination trunk,
+ * return a deterministic tangent-offset waypoint around the nearest such trunk;
+ * otherwise null (steer direct). Recomputed every tick — no extra state.
+ * The destination node's own trunk is never an obstacle (walkers must reach
+ * its slots), and inside the endgame radius steering stays direct so slot
+ * landings stay exact.
+ */
+function avoidTrunks(
+  state: GameState,
+  villager: Villager,
+  target: Vec2,
+  arrival: Vec2,
+): Vec2 | null {
+  if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= OBSTACLE_ENDGAME_RADIUS) {
+    return null; // endgame: direct (neighbour trunks sit ≥ 1.75 from work slots)
+  }
+  let bx = 0;
+  let bz = 0;
+  let bestDist = Infinity;
+  for (const node of state.nodes) {
+    if (node.kind !== 'tree' || node.id === villager.targetNodeId) continue;
+    if (segmentDistance(node.pos, villager.pos, target) >= TRUNK_CLEAR_RADIUS) continue;
+    const d = Math.hypot(node.pos.x - villager.pos.x, node.pos.z - villager.pos.z);
+    if (d < bestDist) {
+      bestDist = d;
+      bx = node.pos.x;
+      bz = node.pos.z;
+    }
+  }
+  if (bestDist === Infinity) return null;
+  // Tangent pursuit: slide around the clearance circle, deterministically taking
+  // the tangent point nearer the steering target (exact ties prefer +).
+  const px = villager.pos.x - bx;
+  const pz = villager.pos.z - bz;
+  const d = Math.max(bestDist, 1e-6);
+  if (d <= TRUNK_CLEAR_RADIUS) {
+    // Inside clearance (unreachable in practice): push radially out.
+    const r = TRUNK_CLEAR_RADIUS + 0.3;
+    return { x: bx + (px / d) * r, z: bz + (pz / d) * r };
+  }
+  const base = Math.atan2(pz, px) + Math.PI; // villager → trunk direction
+  const beta = Math.asin(Math.min(1, TRUNK_CLEAR_RADIUS / d));
+  const len = Math.sqrt(d * d - TRUNK_CLEAR_RADIUS * TRUNK_CLEAR_RADIUS);
+  const q1x = villager.pos.x + len * Math.cos(base + beta);
+  const q1z = villager.pos.z + len * Math.sin(base + beta);
+  const q2x = villager.pos.x + len * Math.cos(base - beta);
+  const q2z = villager.pos.z + len * Math.sin(base - beta);
+  const d1 = (q1x - target.x) ** 2 + (q1z - target.z) ** 2;
+  const d2 = (q2x - target.x) ** 2 + (q2z - target.z) ** 2;
+  return d1 <= d2 ? { x: q1x, z: q1z } : { x: q2x, z: q2z };
+}
+
 function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
   const center = resolveTargetPos(state, villager.targetNodeId);
   if (!center) {
@@ -313,6 +368,15 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
       const a = angCur + signedAngDiff(angCur, angGoal) / 2;
       target = { x: fire.x + Math.cos(a) * REST_ARC_RADIUS, z: fire.z + Math.sin(a) * REST_ARC_RADIUS };
     }
+  }
+  // Obstacle-aware walking (DESIGN.md §3.2 WD3): bend around non-destination
+  // trunks via a tangent waypoint. Village legs never trigger it (their chords
+  // stay within r ≈ 4.5 of the fire while trunks grow at r ≥ 7.5), so rest arcs
+  // and the fire ring are untouched; forest→fire legs detour only out where
+  // trunks actually stand (r ≥ 7.5), far from the flames.
+  {
+    const detour = avoidTrunks(state, villager, target, arrival);
+    if (detour) target = detour;
   }
   const dx = target.x - villager.pos.x;
   const dz = target.z - villager.pos.z;
