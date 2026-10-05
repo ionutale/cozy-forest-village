@@ -53,6 +53,9 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | WB1 | Batch-3 Wave B: rotating village line | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 63/63 ✅ · live: dimming/embers lines, 1 change/12 samples ✅ | 4.5/5 |
 | WB2 | Batch-3 Wave B: structure selection cue | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 continuation | 63/63 ✅ · live: cue ghost/built, exclusive, clears ✅ · +4 calls | 4.5/5 |
 | WB4 | Batch-3 Wave B: garden event + pluck | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 63/63 ✅ · live yield 0→1 ✅ · audible = human | 4.5/5 |
+| WD1 | Batch-3 Wave D: UI split + guard + tests | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 91/91 ✅ · markup byte-identical ✅ · caught 2 real bugs | 4.5/5 |
+| WD2 | Batch-3 Wave D: cue → `selectionCue.ts` | ✅ complete | `opencode/mimo-v2.6-flash-free` (fb; ling rate-limited) | 1 | 91/91 ✅ · differential 376 frames, 0 mismatches ✅ | 4.5/5 |
+| WD3 | Batch-3 Wave D: obstacle-aware walking | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 91/91 ✅ · head-on 0.620 vs 0.57 bar ✅ · live walk clean ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -90,9 +93,10 @@ adds their own, picks ~5–6 for batch 3.
 
 **Wave A shipped (2026-10-05): #1–#9 + the `villagers.ts` split + cook-streak blips (A3).**
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
-Remaining (unpicked / debt): `ui/index.ts` split + signature-guard hardening, `selectionCue.ts`
-extraction (`structures.ts` is 629 lines), unit tests for `villageLine`/`secondsToBerry`,
-obstacle-aware walking, save v2 migrations.
+**Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
+(WD2), obstacle-aware walking (WD3).**
+Remaining: save v2 migrations (planned as F2 of the favor wave), the optional structure-card
+signature test WD1 proved and deleted, vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -132,6 +136,24 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-3 Wave D complete — 3 parallel tasks (commits per task in git)
+- **WD1** UI split (`space-bunny#xhigh`): `ui/index.ts` 560→312 + `derive.ts` / `markup.ts` /
+  `cards.ts` / `structure-card.ts`, **28 new tests** — which caught two real defects on the way
+  (`secondsToBerry(-1000)` read 31s on a 30s cycle; a `NaN` leak that could render "Growing… NaNs"
+  from a malformed save). The M1 guard is now mechanical via a per-card view object; markup proven
+  byte-identical against `git HEAD`. 4.5/5.
+- **WD2** cue extraction (`mimo-v2.6-flash-free`; ling hit a rate limit — roster rotation): new
+  `selectionCue.ts` (160) out of `structures.ts` (629→512); zero-behavior proven with a 376-frame
+  differential harness across 10 edge scenarios — 0 mismatches. 4.5/5.
+- **WD3** obstacle walking (`muse-spark#xhigh`): deterministic tangent-waypoint detours around trunks
+  (TRUNK_RADIUS 0.42; bend when a chord passes within 0.62; destination trunk exempt; direct within
+  1.0 of arrival). Head-on min distance **0.620 vs the 0.57 bar** (0.043–0.090 with the detour
+  disabled); live walk clean. DESIGN §3.2 updated. 4.5/5.
+- Orchestrator live pass: hint/select/fed-tint/popover intact after the split; cue still clicks
+  through (measured **+4 calls** on toggle, consistent with B2); console clean (synthetic-pointer
+  artifact only); integrated gate **91/91**.
+- Note: second rate-limit fallback this batch; the rotation held both times.
 
 ### 2026-10-05 — Batch-3 Wave B complete — 3 parallel tasks (commits per task in git)
 - **WB1** rotating village line (`space-bunny#xhigh`): pure `villageLine()` (embers > dimming > cooking >

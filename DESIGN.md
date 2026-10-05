@@ -184,6 +184,11 @@ implementation detail.
   ≥ ~0.46 apart, above the 0.45 no-stacking bar). Nodes keep r = 0.75 / arrival 0.45.
 - **Any walking leg** whose straight chord passes within **1.1** of the campfire centre is bent via the
   r = 2.2 bisector point (this covers tend-outbound and cook legs, not just rest/campfire arrivals).
+- **Trunk obstacles** (`TRUNK_RADIUS` 0.42, from the render trunk footprint): while walking, any leg
+  whose straight chord to its steering target passes within 0.62 of a non-destination trunk centre
+  bends via a deterministic tangent waypoint around the nearest such trunk, recomputed every tick
+  with no extra state. The destination node's own trunk is never an obstacle, and within 1.0 of the
+  arrival point steering goes direct so slot landings stay exact. Bushes are walkable-adjacent.
 - **Out-of-tick events**: producers outside `tick()` (e.g. `buildStructure`) push to
   `state.pendingEvents`; `tick()` seeds `events` from the queue and empties it — consumers never miss them.
 - **Rest duration by fire** (evaluated at rest start, committed to `villager.restMs`): fuel ≥33 →
