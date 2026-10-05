@@ -14,7 +14,7 @@ export const FIRST_OFFER_MS = 120_000;
 export const NEXT_OFFER_GAP_MS = 90_000;
 /** Never more than two villagers asking at once. */
 export const MAX_ACTIVE_FAVORS = 2;
-/** Steps per villager, then retired. */
+/** Steps per villager; completing the last loops back to step 0 (no retirement). */
 export const CHAIN_LENGTH = 3;
 
 /** "Warm enough" for the fire favor — the steady-fire threshold (DESIGN.md §3.2). */
@@ -80,6 +80,12 @@ export function tickFavors(state: GameState, dtMs: number): void {
 
   // 2. Offer one favor when due and under the cap.
   if (favors.nextOfferMs <= 0) {
+    // Durable heal for batch-4 saves: records parked at CHAIN_LENGTH (the old
+    // retired state) rejoin the loop at step 0. Runs before the max-2 check so
+    // a full board cannot strand them.
+    for (const p of favors.byVillager) {
+      if (p.step >= CHAIN_LENGTH) p.step = 0;
+    }
     let activeCount = 0;
     const eligible: number[] = [];
     for (let i = 0; i < favors.byVillager.length; i += 1) {
@@ -114,8 +120,9 @@ export function tickFavors(state: GameState, dtMs: number): void {
     const progress = favors.byVillager[i]!;
     const want = favorWantFor(i, progress.step);
     if (!want) {
-      // Defensive: an active favor with no chain content retires instead of
-      // wedging the sim (unreachable while `step < CHAIN_LENGTH` is enforced).
+      // Defensive: an active favor with no chain content (a legacy active
+      // step-3 record seen before a heal pass) retires instead of wedging the
+      // sim; the next due offer pass heals its step to 0.
       progress.active = false;
       continue;
     }
@@ -139,7 +146,9 @@ export function tickFavors(state: GameState, dtMs: number): void {
     const villager = state.villagers[i];
     if (progress.progress >= target) {
       progress.active = false;
-      progress.step += 1;
+      // Completing step 3 loops the chain back to step 0: villagers never
+      // permanently retire and the same gap re-paces each loop (DESIGN.md §3.2).
+      progress.step = progress.step + 1 < CHAIN_LENGTH ? progress.step + 1 : 0;
       progress.progress = 0;
       // Breathing room after every completion (spec §1.4).
       favors.nextOfferMs = Math.max(favors.nextOfferMs, NEXT_OFFER_GAP_MS);

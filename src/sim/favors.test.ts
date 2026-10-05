@@ -190,33 +190,49 @@ describe('offering cadence', () => {
     expect(state.favors.nextOfferMs).toBe(0);
   });
 
-  it('only ever offers to an eligible (inactive, unretired) villager', () => {
-    const state = createInitialState();
-    for (let i = 0; i < state.favors.byVillager.length; i += 1) {
-      state.favors.byVillager[i] =
-        i === 1 ? { step: 1, active: false, progress: 0 } : { step: CHAIN_LENGTH, active: false, progress: 0 };
-    }
-    state.favors.nextOfferMs = 0;
-    state.events = [];
-    tickFavors(state, 16);
-    const starts = state.events.filter((e) => e.type === 'favor-start');
-    expect(starts).toHaveLength(1);
-    expect(starts[0]!.villagerId).toBe(state.villagers[1]!.id);
-  });
-
-  it('skips the requester of an already-active favor', () => {
+  it('heals batch-4 retired records (step 3) to step 0 before the eligibility scan', () => {
+    // A fully-retired batch-4 board: every villager parked at CHAIN_LENGTH.
     const state = createInitialState();
     for (let i = 0; i < state.favors.byVillager.length; i += 1) {
       state.favors.byVillager[i] = { step: CHAIN_LENGTH, active: false, progress: 0 };
     }
-    openFavor(state, 0, 0); // one open favor, v1 the only one left to ask
-    state.favors.byVillager[1] = { step: 0, active: false, progress: 0 };
+    state.favors.nextOfferMs = 0;
+    state.events = [];
+    tickFavors(state, 16);
+    // Everyone heals (v0 included, as a batch-4 save would carry it)…
+    for (const p of state.favors.byVillager) expect(p.step).toBe(0);
+    // …so the offer pass can open a favor that could never have opened before.
+    expect(activeCount(state)).toBe(1);
+    expect(startIds(state.events)).toHaveLength(1);
+
+    // Not behind the max-2 check: a retired record heals even while two favors
+    // hold the board full and no offer can open.
+    const capped = createInitialState();
+    openFavor(capped, 1, 0);
+    openFavor(capped, 2, 0);
+    capped.favors.byVillager[0] = { step: CHAIN_LENGTH, active: false, progress: 0 };
+    capped.favors.nextOfferMs = 0;
+    capped.events = [];
+    tickFavors(capped, 16);
+    expect(capped.favors.byVillager[0]).toEqual({ step: 0, active: false, progress: 0 });
+    expect(activeCount(capped)).toBe(MAX_ACTIVE_FAVORS);
+    expect(startIds(capped.events)).toHaveLength(0); // full board: healed, no offer
+  });
+
+  it('skips the requester of an already-active favor', () => {
+    const state = createInitialState();
+    // Batch-4 retired records heal in the same pass, but the open favor's
+    // requester is still never re-picked.
+    for (let i = 0; i < state.favors.byVillager.length; i += 1) {
+      state.favors.byVillager[i] = { step: CHAIN_LENGTH, active: false, progress: 0 };
+    }
+    openFavor(state, 0, 0); // one open favor
     state.favors.nextOfferMs = 0;
     state.events = [];
     tickFavors(state, 16);
     const starts = state.events.filter((e) => e.type === 'favor-start');
     expect(starts).toHaveLength(1);
-    expect(starts[0]!.villagerId).toBe(state.villagers[1]!.id);
+    expect(starts[0]!.villagerId).not.toBe(state.villagers[0]!.id);
     expect(state.favors.byVillager[0]!.active).toBe(true); // the open one was not re-picked
   });
 
@@ -272,7 +288,7 @@ describe('completion', () => {
     expect(state.favors.byVillager[0]!.progress).toBe(1);
     state.events = eatEvents(state, 2, 6);
     tickFavors(state, 16);
-    expect(state.favors.byVillager[0]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[0]).toEqual({ step: 0, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
   });
 
@@ -306,7 +322,7 @@ describe('completion', () => {
     openFavor(state, 1, 2); // v1 → { build, 1 }
     state.events = [{ type: 'built', structureId: 'pot' }];
     tickFavors(state, 16);
-    expect(state.favors.byVillager[1]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[1]).toEqual({ step: 0, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
   });
 
@@ -315,7 +331,7 @@ describe('completion', () => {
     openFavor(state, 1, 2); // v1 → { build, 1 }
     state.pendingEvents.push({ type: 'built', structureId: 'pot' });
     tick(state, 0); // no movement, but the queued `built` must still count
-    expect(state.favors.byVillager[1]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[1]).toEqual({ step: 0, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
   });
 
@@ -337,7 +353,7 @@ describe('completion', () => {
     const done = state.events.filter((e) => e.type === 'favor-done');
     expect(done).toHaveLength(1);
     expect(done[0]!.villagerId).toBe(state.villagers[2]!.id);
-    expect(state.favors.byVillager[2]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[2]).toEqual({ step: 0, active: false, progress: 0 });
 
     // …and warm time after completion cannot fire again.
     state.events = [];
@@ -356,29 +372,30 @@ describe('completion', () => {
 
     state.events = eatEvents(state, 2, 7);
     tickFavors(state, 16);
-    expect(state.favors.byVillager[0]).toEqual({ step: 3, active: false, progress: 0 });
-    expect(state.favors.byVillager[3]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[0]).toEqual({ step: 0, active: false, progress: 0 });
+    expect(state.favors.byVillager[3]).toEqual({ step: 0, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(2);
   });
 
-  it('completing step 3 retires the villager: no further offers, no progress', () => {
+  it('completing step 3 loops the chain to step 0: eligible again, offer waits the full gap', () => {
     const state = createInitialState();
-    for (let i = 1; i < state.favors.byVillager.length; i += 1) {
-      state.favors.byVillager[i] = { step: CHAIN_LENGTH, active: false, progress: 0 };
-    }
     openFavor(state, 0, 2); // v0 → { eat, any, 3 }
+    openFavor(state, 2, 0); // second active holds the cap, so no offer slips in
+    state.favors.nextOfferMs = 0; // due, but the cap blocks the offer pass
     state.events = eatEvents(state, 3, 1);
     tickFavors(state, 16);
-    expect(state.favors.byVillager[0]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.favors.byVillager[0]).toEqual({ step: 0, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
+    // Completion re-enforces the gap even from a due countdown.
+    expect(state.favors.nextOfferMs).toBe(NEXT_OFFER_GAP_MS);
+    expect(state.favors.byVillager[2]!.active).toBe(true);
 
-    // With nobody eligible, the countdown holds at 0 and never offers again.
-    state.favors.nextOfferMs = 0;
+    // Wrapped and eligible again — but no offer before the re-paced gap…
+    expect(startIds(runCollect(state, NEXT_OFFER_GAP_MS - 1000, 1000))).toHaveLength(0);
+    // …exactly at 90 s the loop resumes with a fresh offer.
     state.events = [];
-    tickFavors(state, 1000);
-    tickFavors(state, 1000);
-    expect(state.events.filter((e) => e.type === 'favor-start')).toHaveLength(0);
-    expect(activeCount(state)).toBe(0);
+    tick(state, 1000);
+    expect(startIds(state.events)).toHaveLength(1);
   });
 
   it('a real rest-eat through tick() completes the requester’s eat favor', () => {

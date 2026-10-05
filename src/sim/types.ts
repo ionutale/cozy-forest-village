@@ -69,7 +69,7 @@ export type FavorWant =
   | { kind: 'fire'; ms: number }; // ms accumulated while fuel ≥ 33
 
 export interface FavorProgress {
-  step: number; // 0..CHAIN_LENGTH (3 = chain complete, retired)
+  step: number; // 0..CHAIN_LENGTH; completing the last step wraps back to 0 (no retirement)
   active: boolean; // this villager currently has an open favor
   progress: number; // counts consumed / ms accumulated for the current step
 }
