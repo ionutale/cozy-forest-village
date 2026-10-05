@@ -44,6 +44,10 @@ const PULSE_THROTTLE_MS = 600;
 const RESET_ARM_MS = 3000;
 const FUEL_ROARING = 66;
 const FUEL_STEADY = 33;
+/** B1: how often the panel hint may be recomputed. Long enough to read, short enough to notice. */
+const HINT_INTERVAL_MS = 10000;
+/** B1: the resting hint, and the first line in the markup — a fresh village writes nothing. */
+const DEFAULT_HINT = 'Pick someone, then give them a task.';
 
 const ICONS = {
   wood: `<svg class="pill-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="8" width="14" height="8" rx="4"/><path d="M17 9v6"/><path d="M7 12h3"/></svg>`,
@@ -97,7 +101,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     <aside id="villager-panel" class="panel">
       <div class="panel-head">
         <h2 class="panel-title">Villagers</h2>
-        <p class="panel-hint">Pick someone, then give them a task.</p>
+        <p class="panel-hint">${DEFAULT_HINT}</p>
       </div>
       <div id="villager-list"></div>
       <div id="task-popover" hidden>
@@ -124,6 +128,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const list = must<HTMLElement>(root, '#villager-list');
   const popover = must<HTMLElement>(root, '#task-popover');
   const popoverTitle = must<HTMLElement>(popover, '.popover-title');
+  const panelHint = must<HTMLElement>(root, '.panel-hint');
   const taskGrid = must<HTMLElement>(popover, '.task-grid');
   const stopBtn = must<HTMLButtonElement>(popover, '.stop-btn');
   const cookBtn = must<HTMLButtonElement>(popover, '[data-task="cook"]');
@@ -153,6 +158,9 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   const berriesValue = must<HTMLElement>(berriesPill, '.pill-value');
   /** Last structure-card signature rendered; '' means "nothing rendered yet" (M1). */
   let lastStructureSignature = '';
+  /** B1: the hint's own change-guard + recompute clock. Same pattern as the M1 signature. */
+  let lastHint = DEFAULT_HINT;
+  let hintDueAt = 0;
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Silent reset of the card + popover. Never notifies, so it is safe to reuse. */
@@ -393,6 +401,35 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     return Math.max(0, Math.ceil(remaining / 1000));
   }
 
+  /** B1: first match by *id*, not array order, so the line stays stable if the roster is ever
+   *  reordered or reloaded from a hand-edited save. No Math.random anywhere. */
+  function firstById(villagers: readonly Villager[], match: (v: Villager) => boolean): Villager | undefined {
+    let best: Villager | undefined;
+    for (const v of villagers) {
+      if (!match(v)) continue;
+      if (!best || v.id < best.id) best = v;
+    }
+    return best;
+  }
+
+  /**
+   * B1: the rotating village line, highest priority first. Pure function of state, so it is
+   * recomputed on a slow clock and written only when the answer actually changes.
+   */
+  function villageLine(state: GameState): string {
+    // `<= 0` rather than `=== 0` so a bad save cannot slip past the most urgent line.
+    if (state.fire.fuel <= 0) return 'Only embers left — someone should tend the fire.';
+    const ratio = state.fire.max > 0 ? state.fire.fuel / state.fire.max : 0;
+    if (ratio < FUEL_STEADY / 100) return 'The fire is dimming.';
+    const cooking = firstById(state.villagers, (v) => v.state === 'working' && v.task === 'cook');
+    if (cooking) return `${cooking.name} is cooking.`;
+    const fed = firstById(state.villagers, (v) => v.fedMs > 0);
+    if (fed) return `${fed.name} is well-fed.`;
+    if (state.pot.meals > 0) return 'Meals are ready for a rest.';
+    if (ratio >= FUEL_ROARING / 100) return 'The fire is warm and bright.';
+    return DEFAULT_HINT;
+  }
+
   function fireState(fuel: number, max: number): string {
     const ratio = max > 0 ? fuel / max : 0;
     if (ratio * 100 >= FUEL_ROARING) return 'roaring';
@@ -476,6 +513,19 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       }
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) syncStructureCard(state);
+
+      // B1 rotating hint: recompute on a slow clock, then write only on a real change — two
+      // guards, so the line cannot flicker and the DOM is untouched on every other frame.
+      // The clock is wall time because UIHandle.render(state) carries no dtMs (DESIGN §3).
+      const now = performance.now();
+      if (now >= hintDueAt) {
+        hintDueAt = now + HINT_INTERVAL_MS;
+        const line = villageLine(state);
+        if (line !== lastHint) {
+          lastHint = line;
+          panelHint.textContent = line;
+        }
+      }
     },
     select(villagerId: string | null): void {
       if (!lastState) {

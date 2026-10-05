@@ -134,7 +134,10 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
 
 .panel-title { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; }
 
-.panel-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 12.5px; }
+/* B1: the hint rotates through lines of different lengths, and the longest (the embers warning)
+   wraps to two lines at 12.5px in a 250px panel. Two lines are reserved unconditionally so the
+   villager list below never shifts when the line changes. Cost: ~15px of quiet air at rest. */
+.panel-hint { margin: -4px 0 0; min-height: 2.4em; color: var(--ink-soft); font-size: 12.5px; }
 
 #villager-list { display: flex; flex-direction: column; gap: var(--gap); }
 
