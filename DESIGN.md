@@ -61,7 +61,7 @@ export interface Villager {
   targetNodeId: string | null;  // resolves against nodes OR structures
 }
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built';
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden';
   villagerId?: string;
   structureId?: string;
 }
@@ -106,6 +106,8 @@ export interface RenderHandle {
   pickStructure(clientX: number, clientY: number): string | null;
   /** A4: hover cue — true over a villager (checked first) or a structure; read-only (no selection/camera side effects). */
   pickHover(clientX: number, clientY: number): boolean;
+  /** B2: ground ring around the selected structure's footprint (ghost or built); null clears it. */
+  setSelectedStructure(structureId: string | null): void;
 }
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
@@ -198,7 +200,8 @@ implementation detail.
   feeder (10 wood + 5 berries). `woodpile` is pre-built at (90°, r=2.6).
   `buildStructure(state, id)` spends the cost, sets `built = true`, emits `built`; returns false for
   unknown / already built / unaffordable.
-- **Garden**: while built, +1 berry every **30000 ms** (`gardenMs` in the state).
+- **Garden**: while built, +1 berry every **30000 ms** (`gardenMs` in the state); each yield emits a
+  `garden` event (the audio layer plays it as a soft pluck).
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 

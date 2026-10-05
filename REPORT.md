@@ -50,6 +50,9 @@ Paid fallback proposals (cheapest OpenCode Go first), only on user approval:
 | A4 | Batch-3 hover cursor cue | ✅ complete | `opencode/longcat-2.5-preview-free` | 1 | 62/62 ✅ · live cursor pointer/'' ✅ | 4.5/5 |
 | A5 | Batch-3 structures: meals read + merge/instance | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 62/62 ✅ · calls 97/111 (was 121/145+) ✅ · picks 8/8 ✅ | 5/5 |
 | A6 | Batch-3 split `villagers.ts` (5 modules) | ✅ complete | `opencode/ling-3.1-flash-free` | 1 | 62/62 ✅ · public API unchanged ✅ | 4.5/5 |
+| WB1 | Batch-3 Wave B: rotating village line | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 | 63/63 ✅ · live: dimming/embers lines, 1 change/12 samples ✅ | 4.5/5 |
+| WB2 | Batch-3 Wave B: structure selection cue | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 continuation | 63/63 ✅ · live: cue ghost/built, exclusive, clears ✅ · +4 calls | 4.5/5 |
+| WB4 | Batch-3 Wave B: garden event + pluck | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 63/63 ✅ · live yield 0→1 ✅ · audible = human | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -86,8 +89,10 @@ Curated from B9's 20 proposals (the review-era bugs it found are fixed, not list
 adds their own, picks ~5–6 for batch 3.
 
 **Wave A shipped (2026-10-05): #1–#9 + the `villagers.ts` split + cook-streak blips (A3).**
-Still open for Wave B: **#10** rotating village line, `ui/index.ts` split + signature-guard
-hardening, 3D highlight for the selected structure, plus the honourable mentions below.
+**Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
+Remaining (unpicked / debt): `ui/index.ts` split + signature-guard hardening, `selectionCue.ts`
+extraction (`structures.ts` is 629 lines), unit tests for `villageLine`/`secondsToBerry`,
+obstacle-aware walking, save v2 migrations.
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -127,6 +132,27 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-3 Wave B complete — 3 parallel tasks (commits per task in git)
+- **WB1** rotating village line (`space-bunny#xhigh`): pure `villageLine()` (embers > dimming > cooking >
+  well-fed > meals > roaring > default, `firstById` deterministic), 10 s wall-clock recompute +
+  change-guard — live: "The fire is dimming." → "Only embers left …" at fuel 0, exactly **1 change in
+  12 samples**. Reserved line height (2.4 em) trades a little air for zero list-jump. 4.5/5.
+- **WB2** structure cue (`space-bunny#xhigh`): two-tone footprint rings (wide halo + thin warm band),
+  untagged so picks can't be stolen, eased in/out, mutual exclusion wired 1:1 in `main.ts`; also
+  removed A5's per-frame `Set`. Live: cue on ghost + built, cleared by villager select and ground
+  click (screenshots `WB-*.png`); measured **+4 draw calls** (model's scene-graph estimate said +2 —
+  measured beats claimed; worst case 115, budget 200). First run ended with no reply and left a
+  `.probe/` folder; the continuation delivered `docs/tasks/B2-highlight-report.md` and removed it. 4.5/5.
+- **WB4** audible garden (`muse-spark#xhigh`): a new `garden` event per yield (the one-line `types.ts`
+  deviation blessed; DESIGN §3 synced), softer +2-semitone pluck above gather, priority/cooldown table
+  intact. Live yield 0→1; cadence unit-tested; audible check = human. 4.5/5.
+- **Orchestration incident — task-ID collision**: Wave-B ids reused batch-2 report filenames
+  (B1 overwritten, B4 appended). Fixed by restoring both batch-2 reports from git and renaming the
+  Wave-B reports to `WB1-line-report.md` / `WB4-garden-report.md`; Wave-B report names are `W`-prefixed
+  from now on. Cost: one repair round, no content lost.
+- Frozen-tree validation: tsc/build ✅ · **63/63** ✅ · console clean (synthetic-pointer artifact only)
+  · hint/cue/garden-yield all verified live.
 
 ### 2026-10-05 — Batch-3 Wave A complete — 6 parallel tasks (commits per task in git)
 Parallel wave: six file-disjoint tasks dispatched simultaneously; implementers never commit; the
