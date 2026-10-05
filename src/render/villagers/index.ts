@@ -3,7 +3,8 @@
 // villager id, one shared soft ring marks the selection, and `project` anchors the UI / test hook.
 // B6 adds the batch-2 poses: a held log while carrying (tend), a stir over the pot (cook), a
 // savoring head bob + pooled heart sprites on an `eat` event, and an embers shiver when the fire is
-// out. Motion is procedural; all smoothing state lives on the rig, so the sim stays pure (DESIGN §3).
+// out. F4 bursts the same pooled hearts on `favor-done` (meal rules, no new geometry). Motion is
+// procedural; all smoothing state lives on the rig, so the sim stays pure (DESIGN §3).
 //
 // Split (A6): `rig.ts` builds the shared kit and the per-villager rigs, `motion.ts` computes poses
 // and applies them eased, `hearts.ts` owns the pooled heart sprites, `ring.ts` the shared selection
@@ -81,10 +82,13 @@ export function createVillagers(): VillagersLayer {
       if (state.tick !== lastEventTick) {
         lastEventTick = state.tick;
         for (const event of state.events) {
-          if (event.type !== 'eat' || event.villagerId === undefined) continue;
+          // F4: a completed favor bursts the same pooled hearts as a meal, with the same rules —
+          // only the savoring bob stays exclusive to eating.
+          const burstsHearts = event.type === 'eat' || event.type === 'favor-done';
+          if (!burstsHearts || event.villagerId === undefined) continue;
           const rig = rigs.get(event.villagerId);
           if (!rig) continue;
-          rig.savoring = true;
+          if (event.type === 'eat') rig.savoring = true;
           heartSerial = spawnHearts(hearts, rig, heartSerial);
         }
       }

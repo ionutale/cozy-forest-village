@@ -57,9 +57,10 @@ export function initAudio(): AudioHandle {
   const lastSfx: Record<string, number> = {
     chop: -10, gather: -10, 'rest-done': -10,
     'fuel-add': -10, 'meal-cooked': -10, eat: -10, built: -10, garden: -10,
+    'favor-start': -10, 'favor-done': -10,
   };
 
-  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden';
+  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done';
 
   /** One enveloped oscillator voice with optional pitch glide and random-safe pan. */
   function voice(at: number, from: number, to: number, dur: number, peak: number, pan: number, type: OscillatorType): void {
@@ -174,6 +175,8 @@ export function initAudio(): AudioHandle {
       case 'gather': pluck(); break;
       case 'garden': gardenPluck(); break;
       case 'rest-done': chime(); break;
+      case 'favor-start': favorAsk(); break;
+      case 'favor-done': favorChime(); break;
       case 'fuel-add': thud(); break;
       case 'meal-cooked': mealBlip(advanceMealStreak(now)); break;
       case 'eat': munch(); break;
@@ -194,6 +197,23 @@ export function initAudio(): AudioHandle {
     const at = ctx.currentTime + 0.01;
     voice(at, 660, 660, 0.5, 0.06, -0.2, 'sine'); // quiet two-note chime
     voice(at + 0.18, 880, 880, 0.55, 0.05, 0.2, 'sine');
+  }
+
+  /** F4: favor offered — a soft, inquiring two-note "hm?" on sines, kept below the chirp register. */
+  function favorAsk(): void {
+    if (!ctx) return;
+    const at = ctx.currentTime + 0.01;
+    voice(at, 330, 330, 0.22, 0.035, -0.1, 'sine'); // "hm…"
+    voice(at + 0.16, 415, 415, 0.3, 0.03, 0.1, 'sine'); // "…?"
+  }
+
+  /** F4: favor completed — a warm rising chime (C5→G5), pitched clear of `rest-done` (660/880)
+      and quieter than `built`. */
+  function favorChime(): void {
+    if (!ctx) return;
+    const at = ctx.currentTime + 0.01;
+    voice(at, 523.25, 523.25, 0.5, 0.045, -0.15, 'sine'); // C5
+    voice(at + 0.17, 783.99, 783.99, 0.6, 0.04, 0.15, 'sine'); // G5
   }
 
   function thud(): void {
@@ -364,17 +384,19 @@ export function initAudio(): AudioHandle {
         if (rank > best) { best = rank; pick = kind; }
       };
       for (const ev of state.events) {
-        // Rarest first; garden sits just above the bush gather it resembles.
-        // Existing relative order is unchanged — garden only slots in.
+        // Rarest first; garden sits just above the bush gather it resembles, and the F4 favor
+        // cues slot between built and eat. Existing relative order is unchanged.
         switch (ev.type) {
-          case 'built': consider('built', 7); break;
-          case 'meal-cooked': consider('meal-cooked', 6); break;
-          case 'rest-done': consider('rest-done', 5); break;
-          case 'eat': consider('eat', 4); break;
-          case 'fuel-add': consider('fuel-add', 3); break;
-          case 'garden': consider('garden', 2); break;
-          case 'gather': consider('gather', 1); break;
-          case 'chop': consider('chop', 0); break;
+          case 'built': consider('built', 10); break;
+          case 'favor-done': consider('favor-done', 9); break;
+          case 'meal-cooked': consider('meal-cooked', 8); break;
+          case 'rest-done': consider('rest-done', 7); break;
+          case 'favor-start': consider('favor-start', 6); break;
+          case 'eat': consider('eat', 5); break;
+          case 'fuel-add': consider('fuel-add', 4); break;
+          case 'garden': consider('garden', 3); break;
+          case 'gather': consider('gather', 2); break;
+          case 'chop': consider('chop', 1); break;
           default: break; // 'arrived': silent
         }
       }
