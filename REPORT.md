@@ -76,6 +76,10 @@ the user re-instructs otherwise.
 | H3 | Batch-6: card reconcile + scroll + "Arriving…" | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (fixture) | 209/209 ✅ · 8 tests · live scroll 360/544 @12 ✅ | 4.5/5 |
 | H4 | Batch-6: hut model + ghost + arriving gait | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (gait) | 209/209 ✅ · 1 call/hut ✅ · live ✓ | 4.5/5 |
 | H-fix | Batch-6 review fix round (C1, I1, M1–M3) | ✅ complete | space-bunny + mimo + muse-spark (3 parallel) | 1 | 216/216 ✅ · live: arriving lock releases + real Chop assigned ✅ | 4.5/5 |
+| T1 | Batch-7: trader sim (schedule, trades, hearty) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 254/254 ✅ · 12 tests · live: schedule + rates exact ✅ | 5/5 |
+| T2 | Batch-7: persist v4 chain | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 254/254 ✅ (persist 38/38) · live: mid-visit reload resumes ✅ | 5/5 |
+| T3 | Batch-7: spices pill + trader popover face | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 3 micro-rounds (b/c/d) | 254/254 ✅ · 19 tests · live: gate table + face ✅ | 4.5/5 |
+| T4 | Batch-7: trader rig + handcart + picking + cues | ✅ complete | `opencode/space-bunny-free#xhigh` (2nd session) | 1 + 1 critical fix | 254/254 ✅ · live: 1-click pick + walk ✓ | 4/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -115,11 +119,12 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: **huts → newcomers shipped (H1–H4)**; the **traders → spices** spec + plan are ready and wait
-their turn (schema v3 → v4 ordering). Next candidates: bond levels on cards · day/night cycle ·
-save-migration harness. Known limitations: clicking an already-selected card does not restart camera
-focus (UI same-selection no-op); the heart-pulse duration lives in both `HEART_PULSE_MS` and CSS
-(comment-linked); vite chunk warning (cosmetic).
+Remaining: **traders → spices shipped (T1–T4)**. Next candidates: bond levels on cards · day/night
+cycle · save-migration harness · the structure popover still shows the villager task grid (predates
+batch 7; a one-rule fix if wanted). Known limitations: clicking an already-selected card does not
+restart camera focus (UI same-selection no-op); the heart-pulse duration lives in both
+`HEART_PULSE_MS` and CSS (comment-linked); the trader face's auto-close matrix has no DOM test
+(live-verified instead); vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -159,6 +164,35 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-7 (traders → spices) wave complete — 4 parallel + 4 micro-rounds, 2 live-caught Criticals (free models)
+- **T1 sim** (5/5): `Visitor` schedule (first 240 000, stay 120 000, gap 360 000, walk 6 000),
+  `trade()` at `5 wood → 4 berries` / `6 berries → 1 spice`, max 3/visit; hearty eats (1 spice →
+  fedMs 90 000, `eat.hearty`); events via `pendingEvents` (next-tick, like `buildStructure`) — 12 tests.
+- **T2 persist** (5/5): schema **v4** + chained v1→v2→v3→v4 with post-migration re-validation;
+  `resources.spices` + `visitor` with shape guards — persist 38/38.
+- **T3 UI** (4.5/5): Spices pill + icon, trader popover face with the `tradeDisabled` gate table, hint
+  slot (ember > thanks/favor > trader > dimming), pot hearty suffix. Micro-rounds: **T3b** (pot-suffix
+  wiring + the `structure-card.test.ts` fixture that was blocking everyone's gate), **T3c** (trade
+  costs single-sourced from the sim surface), **T3d** (trader face chrome: task grid + favor gap
+  removed, "Trades left: N" wording, neutral disabled register; also closed a latent stale
+  structure-card leak on structure→trader).
+- **T4 render+audio** (4/5): trader rig from the villager kit + handcart; position and facing purely
+  from `(phase, visitMs)` (reload-exact by construction); wheel roll derived, never accumulated;
+  selection ring reuse; `pickTrader`/`setTraderSelected`; click chain villager → trader → structure →
+  ground; cart-bell/clink cues with the priority renumber.
+- **Live pass (Node Playwright)** — all green: first visit at 240 s → trader walks in → click-select at
+  the projected stall pixel (962, 410) on the **first attempt** → both trades execute exactly
+  (60→55/40→44; →38/1 spice; →32/2 spice; counter 3→0) → sold-out buttons disable → **mid-visit
+  reload resumes the visit** (`visitMs` continuous, `tradesLeft: 0`, `spices: 2` persisted) → hearty
+  meal consumes 1 spice for `fedMs 90 000` → console clean. Evidence:
+  `docs/validation/WT-{walkin,stall,trade,reload}.png`.
+- **Two Criticals caught by the live pass** (neither visible to `tsc`, build, or 254 tests):
+  (1) **T4's trader `root` was never attached to the exported `group`** — invisible and unpickable in
+  the shipped wave while the HUD advertised the visit; one-line fix + re-run. Recorded lesson: every
+  render task's live pass needs a scene-graph assertion. (2) The trader face carried the villager task
+  grid + favor gap — fixed in T3d.
+- Review: independent read-only pass dispatched over the wave.
 
 ### 2026-10-05 — Batch-6 review fix round — 1 Critical · 1 Important · 3 Minor, all fixed (3 parallel free models)
 - **C1 (Critical, `space-bunny`)** — the arriving lock never released: `chop`/`berries`/`rest`/`tend`
