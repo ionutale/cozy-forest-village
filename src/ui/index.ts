@@ -9,7 +9,7 @@
 // This file owns selection state, event wiring, and the per-frame pump.
 
 import type { GameState, Structure, TaskId } from '../sim';
-import { buildCards, syncCards, type CardParts } from './cards';
+import { buildCards, cancelHeartPulse, syncCards, type CardParts } from './cards';
 import {
   DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState,
   firstFavorDoneVillagerId, hintRecomputeDue, villageLine,
@@ -337,6 +337,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       document.removeEventListener('click', onDocumentClick);
       document.removeEventListener('keydown', onKeyDown);
       if (resetTimer !== null) clearTimeout(resetTimer);
+      // G3: drop pending heart-pulse hides so no timer writes to a detached card.
+      for (const parts of cards.values()) cancelHeartPulse(parts);
       cards.clear();
       root.innerHTML = '';
     },
