@@ -22,6 +22,8 @@ export interface RenderHandle {
   /** A4: hover cue — true when the pixel is over a villager (checked first) or a structure.
       Read-only: same raycasts as the click chain, no selection or camera side effects. */
   pickHover(clientX: number, clientY: number): boolean;
+  /** B2: ground ring around the selected structure's footprint (ghost or built); null clears it. */
+  setSelectedStructure(structureId: string | null): void;
 }
 
 declare global {
@@ -95,6 +97,7 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   let ambientLayer: AmbientLayer | null = null;
   let structures: StructuresLayer | null = null;
   let selectedId: string | null = null; // kept here so the ring survives layer re-creation
+  let selectedStructureId: string | null = null; // B2: same reason — survives layer re-creation
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const scratch = new THREE.Vector2();
@@ -144,6 +147,9 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       ambientLayer.update(state, timeSec, dtMs);
       structures.update(state, timeSec);
       villagers.setSelected(selectedId);
+      // B2: re-applied every frame for the same reason — `structures` is created lazily on the
+      // first render, so a click that lands before that frame must still be honoured.
+      structures.setSelectedStructure(selectedStructureId);
       controls.update();
       renderer.render(scene, camera);
     },
@@ -159,6 +165,10 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
     setSelected(villagerId: string | null): void {
       selectedId = villagerId;
       villagers?.setSelected(selectedId);
+    },
+    setSelectedStructure(structureId: string | null): void {
+      selectedStructureId = structureId;
+      structures?.setSelectedStructure(structureId);
     },
     pickStructure(clientX: number, clientY: number): string | null {
       if (!structures) return null;

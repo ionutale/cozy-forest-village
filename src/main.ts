@@ -35,7 +35,13 @@ const ui = initUI(uiRoot, {
   // UI only asks the sim to reassign; the next frame's render picks up the new state.
   assignTask: (villagerId, task) => assignTask(state, villagerId, task),
   // Panel-driven selection (card click, Escape, outside click) must light up the world ring.
-  onSelect: (villagerId) => render.setSelected(villagerId),
+  // B2: the popover shows one thing at a time, so a villager selection *is* a structure
+  // deselection — the two cues are mutually exclusive and the ground ring must follow the UI
+  // rather than linger under a card that is no longer open.
+  onSelect: (villagerId) => {
+    render.setSelected(villagerId);
+    render.setSelectedStructure(null);
+  },
   // B7: spend resources on a ghost. The sim refuses unknown / already-built / unaffordable.
   build: (structureId) => {
     buildStructure(state, structureId);
@@ -104,7 +110,12 @@ canvas.addEventListener('pointerup', (ev) => {
   // ring), and empty ground clears both. Exactly one of the two ids is ever non-null.
   const villagerId = render.pickVillager(ev.clientX, ev.clientY);
   const structureId = villagerId ? null : render.pickStructure(ev.clientX, ev.clientY);
+  // B2: the two world cues are set from the same pair of ids the UI is given, in the same order,
+  // so the ring under a villager and the ring under a structure can never both be lit, and a
+  // ground click clears both. `pickVillager`/`pickStructure` are called once each, exactly as
+  // before — this only adds the second setter.
   render.setSelected(villagerId);
+  render.setSelectedStructure(structureId);
   ui.select(villagerId);
   ui.selectStructure(structureId);
 });
