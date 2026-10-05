@@ -24,6 +24,8 @@ export interface RenderHandle {
   pickHover(clientX: number, clientY: number): boolean;
   /** B2: ground ring around the selected structure's footprint (ghost or built); null clears it. */
   setSelectedStructure(structureId: string | null): void;
+  /** G5: gently ease the camera target toward a villager; null cancels any running ease. */
+  focusVillager(villagerId: string | null): void;
 }
 
 declare global {
@@ -31,6 +33,12 @@ declare global {
     __cozyRender?: { info: () => { calls: number; triangles: number; geometries: number; textures: number } };
   }
 }
+
+// G5: camera focus tuning. The orbit target approaches its focus point at an exponential rate
+// (1/s); the village centre is the origin, where the campfire stands.
+const FOCUS_EASE_PER_SEC = 3.5;
+const FOCUS_ARRIVE_EPS = 0.4; // u — inside this dead-zone the ease idles (never snaps)
+const FOCUS_RADIUS_MAX = 8; // u — clamp around the village centre (the origin / campfire)
 
 function disposeScene(scene: THREE.Scene): void {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -98,9 +106,17 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   let structures: StructuresLayer | null = null;
   let selectedId: string | null = null; // kept here so the ring survives layer re-creation
   let selectedStructureId: string | null = null; // B2: same reason — survives layer re-creation
+  // G5: villager the orbit rig is easing toward; null while no ease runs. Any canvas pointerdown
+  // clears it, so an orbit drag always wins over a running ease.
+  let focusId: string | null = null;
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const scratch = new THREE.Vector2();
+
+  function cancelFocus(): void {
+    focusId = null;
+  }
+  canvas.addEventListener('pointerdown', cancelFocus);
 
   function resize(): void {
     const width = canvas.clientWidth || window.innerWidth;
@@ -150,6 +166,39 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       // B2: re-applied every frame for the same reason — `structures` is created lazily on the
       // first render, so a click that lands before that frame must still be honoured.
       structures.setSelectedStructure(selectedStructureId);
+      // G5: ease the orbit rig toward the focused villager. The target leads and the camera is
+      // translated by the same delta, so view direction and orbit distance stay untouched. The
+      // focus point is clamped to FOCUS_RADIUS_MAX around the village centre, and inside the
+      // FOCUS_ARRIVE_EPS dead-zone nothing moves — a walking villager is picked up again from
+      // there, never snapped. Read-only over sim state; scalar math only, nothing allocated.
+      if (focusId !== null) {
+        const roster = state.villagers;
+        for (let i = 0; i < roster.length; i += 1) {
+          const villager = roster[i];
+          if (villager === undefined || villager.id !== focusId) continue;
+          let fx = villager.pos.x;
+          let fz = villager.pos.z;
+          const centreDist = Math.hypot(fx, fz);
+          if (centreDist > FOCUS_RADIUS_MAX) {
+            const clampScale = FOCUS_RADIUS_MAX / centreDist;
+            fx *= clampScale;
+            fz *= clampScale;
+          }
+          const dx = fx - controls.target.x;
+          const dz = fz - controls.target.z;
+          if (Math.hypot(dx, dz) > FOCUS_ARRIVE_EPS) {
+            const dtSec = Math.min(Math.max(dtMs, 0), 100) / 1000;
+            const blend = 1 - Math.exp(-FOCUS_EASE_PER_SEC * dtSec);
+            const stepX = dx * blend;
+            const stepZ = dz * blend;
+            controls.target.x += stepX;
+            controls.target.z += stepZ;
+            camera.position.x += stepX;
+            camera.position.z += stepZ;
+          }
+          break;
+        }
+      }
       controls.update();
       renderer.render(scene, camera);
     },
@@ -169,6 +218,9 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
     setSelectedStructure(structureId: string | null): void {
       selectedStructureId = structureId;
       structures?.setSelectedStructure(structureId);
+    },
+    focusVillager(villagerId: string | null): void {
+      focusId = villagerId; // applied by the next render(), once sim positions are read
     },
     pickStructure(clientX: number, clientY: number): string | null {
       if (!structures) return null;
@@ -204,6 +256,7 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       ambientLayer = null;
       structures?.dispose();
       structures = null;
+      canvas.removeEventListener('pointerdown', cancelFocus);
       controls.dispose();
       disposeScene(scene);
       renderer.dispose();

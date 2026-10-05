@@ -41,6 +41,9 @@ const ui = initUI(uiRoot, {
   onSelect: (villagerId) => {
     render.setSelected(villagerId);
     render.setSelectedStructure(null);
+    // G5: a panel-driven pick eases the camera too; dismissals (Escape / outside click) arrive
+    // here as null and cancel any running ease.
+    render.focusVillager(villagerId);
   },
   // B7: spend resources on a ghost. The sim refuses unknown / already-built / unaffordable.
   build: (structureId) => {
@@ -116,6 +119,9 @@ canvas.addEventListener('pointerup', (ev) => {
   // before — this only adds the second setter.
   render.setSelected(villagerId);
   render.setSelectedStructure(structureId);
+  // G5: a world pick eases the camera toward the villager; empty ground or a structure arrives as
+  // null and cancels the ease. A drag never gets here — it already cancelled on pointerdown.
+  render.focusVillager(villagerId);
   ui.select(villagerId);
   ui.selectStructure(structureId);
 });
