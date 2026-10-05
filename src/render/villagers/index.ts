@@ -3,19 +3,29 @@
 // villager id, one shared soft ring marks the selection, and `project` anchors the UI / test hook.
 // B6 adds the batch-2 poses: a held log while carrying (tend), a stir over the pot (cook), a
 // savoring head bob + pooled heart sprites on an `eat` event, and an embers shiver when the fire is
-// out. F4 bursts the same pooled hearts on `favor-done` (meal rules, no new geometry). Motion is
-// procedural; all smoothing state lives on the rig, so the sim stays pure (DESIGN §3).
+// out. F4 bursts the same pooled hearts on `favor-done` (meal rules, no new geometry); one burst
+// per villager per tick — a completion on the requester's own meal tick de-dupes the `eat`
+// burst (same visual moment, M8). Motion is procedural; all smoothing state lives on the rig, so
+// the sim stays pure (DESIGN §3).
 //
 // Split (A6): `rig.ts` builds the shared kit and the per-villager rigs, `motion.ts` computes poses
 // and applies them eased, `hearts.ts` owns the pooled heart sprites, `ring.ts` the shared selection
 // ring. This file is the public surface and the per-frame orchestration only.
 
 import * as THREE from 'three';
-import type { GameState } from '../../sim';
+import type { GameState, SimEvent } from '../../sim';
 import { createRig, createRigKit, type Rig } from './rig';
 import { animate } from './motion';
 import { advanceHearts, createHeartPool, spawnHearts } from './hearts';
 import { createSelectionRing, updateSelectionRing } from './ring';
+
+/** M8: true when this tick's event batch holds a `favor-done` for `villagerId`. */
+function hasFavorDoneFor(events: readonly SimEvent[], villagerId: string): boolean {
+  for (const event of events) {
+    if (event.type === 'favor-done' && event.villagerId === villagerId) return true;
+  }
+  return false;
+}
 
 export interface VillagersLayer {
   group: THREE.Group;
@@ -88,7 +98,13 @@ export function createVillagers(): VillagersLayer {
           if (!burstsHearts || event.villagerId === undefined) continue;
           const rig = rigs.get(event.villagerId);
           if (!rig) continue;
-          if (event.type === 'eat') rig.savoring = true;
+          if (event.type === 'eat') {
+            rig.savoring = true; // the bob stays eat-only, even when the burst is de-duped
+            // M8: step 0 completes on the requester's own meal tick, so the `favor-done` burst
+            // would otherwise double-spawn into the 4-slot pool. One burst per villager per
+            // tick; the completion wins (same visual moment). Other eats are untouched.
+            if (hasFavorDoneFor(state.events, event.villagerId)) continue;
+          }
           heartSerial = spawnHearts(hearts, rig, heartSerial);
         }
       }
