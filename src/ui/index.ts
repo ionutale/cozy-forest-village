@@ -10,7 +10,9 @@
 
 import type { GameState, Structure, TaskId } from '../sim';
 import { buildCards, syncCards, type CardParts } from './cards';
-import { DEFAULT_HINT, STRUCTURE_NAMES, fireState, villageLine } from './derive';
+import {
+  DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState, villageLine,
+} from './derive';
 import { bindRefs, uiMarkup } from './markup';
 import { createStructureCard } from './structure-card';
 
@@ -43,7 +45,7 @@ const HINT_INTERVAL_MS = 10000;
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   root.innerHTML = uiMarkup();
   const refs = bindRefs(root);
-  const { list, popover, popoverTitle, panelHint, taskGrid, stopBtn, cookBtn, resetBtn, fuelPill } = refs;
+  const { list, popover, popoverTitle, panelHint, taskGrid, stopBtn, cookBtn, resetBtn, fuelPill, favorLine } = refs;
   const card = createStructureCard(refs);
 
   const cards = new Map<string, CardParts>();
@@ -59,6 +61,9 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   /** B1: the hint's own change-guard + recompute clock. Same pattern as the M1 signature. */
   let lastHint = DEFAULT_HINT;
   let hintDueAt = 0;
+  /** Batch 4: the "delighted!" name and the wall-clock end of its window (UI-side only). */
+  let thanksName: string | null = null;
+  let thanksUntil = 0;
   let resetTimer: ReturnType<typeof setTimeout> | null = null;
 
   function selectedStructure(state: GameState): Structure | undefined {
@@ -272,13 +277,38 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) card.sync(state, selectedStructure(state));
 
+      // Batch 4: the popover's `Favor:` line for the selected villager. `visibility` (not the
+      // `hidden` attribute) keeps the reserved slot in the layout — the markup reserves two
+      // lines, so a favor appearing or clearing never jumps the task grid below it.
+      const selectedIndex = selectedId ? state.villagers.findIndex((v) => v.id === selectedId) : -1;
+      const popoverFavor = selectedIndex >= 0 ? favorPopoverLine(state, selectedIndex) : null;
+      if (favorLine.textContent !== (popoverFavor ?? '')) favorLine.textContent = popoverFavor ?? '';
+      const favorVisibility = popoverFavor !== null ? 'visible' : 'hidden';
+      if (favorLine.style.visibility !== favorVisibility) favorLine.style.visibility = favorVisibility;
+
+      const now = performance.now();
+      // Batch 4 thank-you window: a `favor-done` opens THANK_YOU_MS of "is delighted!" in the
+      // hint. The hint is made due on the window's open and close edges so the moment is never
+      // missed between the existing 10 s recomputes — the recompute cadence itself is unchanged.
+      for (const ev of state.events) {
+        if (ev.type !== 'favor-done') continue;
+        const done = ev.villagerId ? state.villagers.find((v) => v.id === ev.villagerId) : undefined;
+        if (!done) continue;
+        thanksName = done.name;
+        thanksUntil = now + THANK_YOU_MS;
+        hintDueAt = 0;
+      }
+      if (thanksName !== null && now >= thanksUntil) {
+        thanksName = null;
+        hintDueAt = 0;
+      }
+
       // B1 rotating hint: recompute on a slow clock, then write only on a real change — two
       // guards, so the line cannot flicker and the DOM is untouched on every other frame.
       // The clock is wall time because UIHandle.render(state) carries no dtMs (DESIGN §3).
-      const now = performance.now();
       if (now >= hintDueAt) {
         hintDueAt = now + HINT_INTERVAL_MS;
-        const line = villageLine(state);
+        const line = villageLine(state, thanksName);
         if (line !== lastHint) {
           lastHint = line;
           panelHint.textContent = line;

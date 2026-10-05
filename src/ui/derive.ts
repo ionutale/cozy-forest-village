@@ -2,8 +2,11 @@
 // so every function here is directly unit-testable under vitest's node environment
 // (see ./derive.test.ts). The UI layer owns when to call them and what to do with the result.
 
-import type { GameState, StructureKind, TaskId, Villager } from '../sim';
-import { GARDEN_PERIOD_MS } from '../sim';
+import type { FavorWant, GameState, StructureKind, TaskId, Villager } from '../sim';
+import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
+
+/** Batch 4: UI-side "delighted!" window after a `favor-done` event (DESIGN §3.2; no sim state). */
+export const THANK_YOU_MS = 6000;
 
 /** B1: the resting panel hint, and the first line in the markup — a fresh village writes nothing. */
 export const DEFAULT_HINT = 'Pick someone, then give them a task.';
@@ -69,11 +72,18 @@ export function firstById(
 /**
  * B1: the rotating village line, highest priority first. A pure function of state, so the UI
  * recomputes it on a slow clock and writes only when the answer actually changes.
+ *
+ * Batch 4 priority: `embers > favor > dimming > cooking > well-fed > meals > roaring > default`.
+ * `thanks` (a villager name from the UI's 6 s post-`favor-done` window) *replaces* the favor line
+ * rather than stacking with it — the two can never render together.
  */
-export function villageLine(state: GameState): string {
+export function villageLine(state: GameState, thanks: string | null): string {
   // `<= 0` rather than `=== 0` so a bad save cannot slip past the most urgent line. A NaN fuel
   // fails every comparison and falls through to the default hint rather than throwing.
   if (state.fire.fuel <= 0) return 'Only embers left — someone should tend the fire.';
+  if (thanks !== null) return `${thanks} is delighted!`;
+  const favor = favorLine(state);
+  if (favor !== null) return favor;
   const ratio = state.fire.max > 0 ? state.fire.fuel / state.fire.max : 0;
   if (ratio < FUEL_STEADY / 100) return 'The fire is dimming.';
   const cooking = firstById(state.villagers, (v) => v.state === 'working' && v.task === 'cook');
@@ -83,6 +93,103 @@ export function villageLine(state: GameState): string {
   if (state.pot.meals > 0) return 'Meals are ready for a rest.';
   if (ratio >= FUEL_ROARING / 100) return 'The fire is warm and bright.';
   return DEFAULT_HINT;
+}
+
+/**
+ * Batch 4: UI-owned flavor copy for a favor want (the DESIGN §3.2 "Favor chains" table's last
+ * column), like `STRUCTURE_NAMES` — the sim owns chain content, the words are presentation.
+ */
+export function favorText(want: FavorWant): string {
+  switch (want.kind) {
+    case 'eat':
+      return want.who === 'any' ? 'a feast for the village' : 'a warm meal';
+    case 'gather':
+      return 'berries for the village';
+    case 'chop':
+      return 'firewood for the village';
+    case 'build':
+      return 'something new built';
+    case 'fire':
+      return 'the fire kept warm for two minutes';
+  }
+}
+
+/** Floor seconds as `m:ss`: `72000 → "1:12"`. Nonsense input reads as zero, never "NaN:NaN". */
+function mmss(ms: number): string {
+  const safe = Number.isFinite(ms) && ms > 0 ? ms : 0;
+  const total = Math.floor(safe / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** A finite, integer, non-negative count/window for display. */
+function whole(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+/**
+ * Batch 4: the progress tail after a want — `(3/6)` for countable wants, `(1:12/2:00)` (m:ss)
+ * for the fire favor. Clamped to the want's target, so a stale or over-counted save can never
+ * read "7/6"; nonsense degrades to zero.
+ */
+export function favorProgressText(want: FavorWant, progress: number): string {
+  if (want.kind === 'fire') {
+    const total = whole(want.ms);
+    return `(${mmss(Math.min(whole(progress), total))}/${mmss(total)})`;
+  }
+  const total = whole(want.count);
+  return `(${Math.min(whole(progress), total)}/${total})`;
+}
+
+/** The active want + its raw progress for one villager slot, or null when none is usable. */
+function activeFavor(
+  state: GameState,
+  villagerIndex: number,
+): { want: FavorWant; progress: number } | null {
+  const progress = state.favors?.byVillager?.[villagerIndex];
+  if (!progress || progress.active !== true) return null;
+  // Chain content lives in the sim (`src/sim/favors.ts`, re-exported at the public surface);
+  // its step is 0-based, exactly the value the sim's completion pass reads.
+  const want = favorWantFor(villagerIndex, progress.step);
+  if (!want) return null;
+  return { want, progress: progress.progress };
+}
+
+/**
+ * Batch 4: `"{Name} would love {want} {progress}."` for one villager, or null when that villager
+ * has no active favor. Pure; the caller decides which villager (the hint picks by id, the
+ * popover picks the current selection).
+ */
+export function favorLineFor(state: GameState, villagerIndex: number): string | null {
+  const active = activeFavor(state, villagerIndex);
+  const name = state.villagers[villagerIndex]?.name;
+  if (!active || !name) return null;
+  return `${name} would love ${favorText(active.want)} ${favorProgressText(active.want, active.progress)}.`;
+}
+
+/**
+ * Batch 4: the hint's favor slot — the first *usable* active favor by villager id (the same
+ * id-stable rule as `firstById`), never array order. Null when nobody is asking.
+ */
+export function favorLine(state: GameState): string | null {
+  let bestId: string | null = null;
+  let bestLine: string | null = null;
+  for (let i = 0; i < state.villagers.length; i += 1) {
+    const villager = state.villagers[i]!;
+    if (state.favors?.byVillager?.[i]?.active !== true) continue;
+    if (bestId !== null && villager.id >= bestId) continue;
+    const line = favorLineFor(state, i);
+    if (line === null) continue;
+    bestId = villager.id;
+    bestLine = line;
+  }
+  return bestLine;
+}
+
+/** Batch 4: the popover's `Favor: {want} {progress}` line, or null when no active favor. */
+export function favorPopoverLine(state: GameState, villagerIndex: number): string | null {
+  const active = activeFavor(state, villagerIndex);
+  if (!active) return null;
+  return `Favor: ${favorText(active.want)} ${favorProgressText(active.want, active.progress)}`;
 }
 
 /** Popover title for a structure card. Both lanterns share a name; their ids stay distinct. */

@@ -13,6 +13,9 @@ export const ICONS = {
   fire: `<svg class="pill-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c1.6 3.4.4 5.2-1.4 6.9C8.4 11 6.5 12.6 6.5 15.5A5.5 5.5 0 0 0 12 21a5.5 5.5 0 0 0 5.5-5.5c0-2.4-1.3-4.2-2.7-5.6-.6 1-1.4 1.6-2.3 1.8.9-3.6-.3-6.9-.5-9.7Z"/></svg>`,
 } as const;
 
+/** Batch 4: the small heart on a requester's card (tinted `--accent` at the use site). */
+export const HEART_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20.6c-4.9-3.3-8.1-6.2-8.1-9.5C3.9 8.3 5.9 6.7 8 6.7c1.6 0 3 .9 4 2.3 1-1.4 2.4-2.3 4-2.3 2.1 0 4.1 1.6 4.1 4.4 0 3.3-3.2 6.2-8.1 9.5Z"/></svg>`;
+
 /** The HUD's smaller icon, for a structure's cost line. */
 export function costIcon(kind: 'wood' | 'berries'): string {
   return ICONS[kind].replace('pill-icon', 'cost-icon');
@@ -52,6 +55,7 @@ export function uiMarkup(): string {
       <div id="villager-list"></div>
       <div id="task-popover" hidden>
         <p class="popover-title"></p>
+        <p class="favor-line" style="margin:0; min-height:2.4em; color:var(--ink-soft); font-size:12.5px; font-weight:600; visibility:hidden"></p>
         <div class="task-grid">
           ${TASK_ORDER.map(
             (task) =>
@@ -77,6 +81,8 @@ export interface UiRefs {
   list: HTMLElement;
   popover: HTMLElement;
   popoverTitle: HTMLElement;
+  /** Batch 4: the popover's reserved favor line (visibility-toggled, never display-toggled). */
+  favorLine: HTMLElement;
   panelHint: HTMLElement;
   taskGrid: HTMLElement;
   stopBtn: HTMLButtonElement;
@@ -105,6 +111,7 @@ export function bindRefs(root: HTMLElement): UiRefs {
     list: must<HTMLElement>(root, '#villager-list'),
     popover: must<HTMLElement>(root, '#task-popover'),
     popoverTitle: must<HTMLElement>(root, '.popover-title'),
+    favorLine: must<HTMLElement>(root, '.favor-line'),
     panelHint: must<HTMLElement>(root, '.panel-hint'),
     taskGrid: must<HTMLElement>(root, '.task-grid'),
     stopBtn: must<HTMLButtonElement>(root, '.stop-btn'),
