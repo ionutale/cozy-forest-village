@@ -146,10 +146,11 @@ function migrateV2toV3(state: V2GameState): GameState {
 
 /**
  * Load the saved game. Migrations chain additively (DESIGN §3 persist): v1 → v2 (favors) →
- * v3 (hut plots + arrivals), each older version validated against *its own* schema before it
- * migrates — so a v1/v2 village always survives and simply gains whatever the newer schema
- * adds. Only a v3 blob is validated as v3. Any failure (missing, bad JSON, unknown version,
- * wrong shape) → null. Never throws.
+ * v3 (hut plots + arrivals). Each older version is validated against *its own* schema, and
+ * the **migrated result is then validated as v3 as well** — so a v1/v2 village always
+ * survives, and a save whose roster falls outside `[8, 12]` is rejected rather than migrated
+ * into one that would drive `castIndex` off the newcomer cast table (review I1). Any failure
+ * (missing, bad JSON, unknown version, wrong shape) → null. Never throws.
  */
 export function loadGame(storage: Storage = localStorage): GameState | null {
   try {
@@ -164,7 +165,11 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
     }
     if (parsed.version === 2) {
       if (!isPlausibleV2State(parsed.state)) return null;
-      return migrateV2toV3(parsed.state);
+      // I1: validate the migrated result as v3 too. `migrateV2toV3` constructs the arrivals
+      // shape itself, but the roster bound sits on a pre-existing field the migration never
+      // touches — an out-of-range roster would drive `castIndex` off the newcomer cast table.
+      const v3 = migrateV2toV3(parsed.state);
+      return isPlausibleState(v3) ? v3 : null;
     }
     if (parsed.version === 1) {
       if (!isPlausibleV1State(parsed.state)) return null;
@@ -174,7 +179,8 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
         ...parsed.state,
         favors: createFavors(parsed.state.villagers.length),
       };
-      return migrateV2toV3(v2);
+      const v3 = migrateV2toV3(v2);
+      return isPlausibleState(v3) ? v3 : null;
     }
     return null;
   } catch {

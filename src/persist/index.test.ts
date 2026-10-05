@@ -46,28 +46,45 @@ function asV2(state: GameState): GameState {
   });
 }
 
-/** A minimal but valid pre-favors (v1) state, for the chained-migration test. */
-function v1Blob(): unknown {
+/**
+ * A realistic pre-favors (v1) village: the fixed eight of DESIGN §3's roster — the only count
+ * a genuine pre-batch-6 save can have. `villagerCount` truncates it for the out-of-range
+ * tests, so the migration fixture and the rejection fixture can never drift apart.
+ */
+function v1Blob(villagerCount = 8): unknown {
+  const first = {
+    id: 'villager-0',
+    name: 'Fern',
+    hatColor: '#e8b4b8',
+    task: 'chop',
+    state: 'working',
+    pos: { x: 1.5, z: -0.5 },
+    facing: 0.25,
+    targetNodeId: 'tree-0',
+    progressMs: 400,
+    fedMs: 1200,
+    carrying: false,
+    restMs: 0,
+  };
+  const rest = ['Maple', 'Birch', 'Pip', 'Hazel', 'Juniper', 'Moss', 'Clover'].map((name, i) => ({
+    id: `villager-${i + 1}`,
+    name,
+    hatColor: '#7fa653',
+    task: null,
+    state: 'idle',
+    pos: { x: -1, z: 2 },
+    facing: 0,
+    targetNodeId: null,
+    progressMs: 0,
+    fedMs: 0,
+    carrying: false,
+    restMs: 0,
+  }));
   return {
     tick: 42,
     seed: 7,
     resources: { wood: 5, berries: 2 },
-    villagers: [
-      {
-        id: 'villager-0',
-        name: 'Fern',
-        hatColor: '#e8b4b8',
-        task: 'chop',
-        state: 'working',
-        pos: { x: 1.5, z: -0.5 },
-        facing: 0.25,
-        targetNodeId: 'tree-0',
-        progressMs: 400,
-        fedMs: 1200,
-        carrying: false,
-        restMs: 0,
-      },
-    ],
+    villagers: [first, ...rest].slice(0, villagerCount),
     nodes: [{ id: 'tree-0', kind: 'tree', pos: { x: 8, z: 0 } }],
     structures: [],
     fire: { fuel: 55, max: 100 },
@@ -120,42 +137,16 @@ describe('persist', () => {
   describe('v1 → v2 migration', () => {
     it('loads a v1 save, keeps the village intact and starts chains fresh', () => {
       const storage = makeStorageFake();
-      const v1State = {
-        tick: 42,
-        seed: 7,
-        resources: { wood: 5, berries: 2 },
-        villagers: [
-          {
-            id: 'villager-0',
-            name: 'Fern',
-            hatColor: '#e8b4b8',
-            task: 'chop',
-            state: 'working',
-            pos: { x: 1.5, z: -0.5 },
-            facing: 0.25,
-            targetNodeId: 'tree-0',
-            progressMs: 400,
-            fedMs: 1200,
-            carrying: false,
-            restMs: 0,
-          },
-        ],
-        nodes: [{ id: 'tree-0', kind: 'tree', pos: { x: 8, z: 0 } }],
-        structures: [],
-        fire: { fuel: 55, max: 100 },
-        pot: { meals: 2 },
-        gardenMs: 300,
-        events: [],
-        pendingEvents: [],
-      };
-      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1State }));
+      // Shares the realistic eight-villager fixture with the chained-migration test below — a
+      // 1-villager blob is outside the v3 roster rule and would now be rejected (review I1).
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob() }));
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
       // The village survives untouched.
       expect(loaded!.tick).toBe(42);
       expect(loaded!.seed).toBe(7);
       expect(loaded!.resources).toEqual({ wood: 5, berries: 2 });
-      expect(loaded!.villagers).toHaveLength(1);
+      expect(loaded!.villagers).toHaveLength(8);
       expect(loaded!.villagers[0]!.task).toBe('chop');
       expect(loaded!.villagers[0]!.progressMs).toBe(400);
       expect(loaded!.fire.fuel).toBe(55);
@@ -163,7 +154,9 @@ describe('persist', () => {
       expect(loaded!.gardenMs).toBe(300);
       // Chains start fresh: no instant offer, every villager unprompted.
       expect(loaded!.favors.nextOfferMs).toBe(FIRST_OFFER_MS);
-      expect(loaded!.favors.byVillager).toEqual([{ step: 0, active: false, progress: 0 }]);
+      expect(loaded!.favors.byVillager).toEqual(
+        Array.from({ length: 8 }, () => ({ step: 0, active: false, progress: 0 })),
+      );
     });
 
     it('returns null when a v1 blob fails the v1 shape check', () => {
@@ -215,6 +208,16 @@ describe('persist', () => {
       const ids = loaded!.structures.filter((s) => s.kind === 'hut').map((s) => s.id);
       expect([...ids].sort()).toEqual(['hut-1', 'hut-2', 'hut-3', 'hut-4']);
     });
+
+    it('rejects a v2 roster outside [8, 12] instead of migrating it (review I1)', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.villagers.pop();
+      state.favors.byVillager.pop();
+      expect(state.villagers).toHaveLength(7); // passes v2 validation; only the v3 bound rejects
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, state: asV2(state) }));
+      expect(loadGame(storage)).toBeNull();
+    });
   });
 
   describe('v1 → v2 → v3 chained migration (Review Focus 4)', () => {
@@ -228,17 +231,27 @@ describe('persist', () => {
       expect(loaded!.tick).toBe(42);
       expect(loaded!.seed).toBe(7);
       expect(loaded!.resources).toEqual({ wood: 5, berries: 2 });
-      expect(loaded!.villagers).toHaveLength(1);
+      expect(loaded!.villagers).toHaveLength(8);
       expect(loaded!.villagers[0]!.name).toBe('Fern');
       expect(loaded!.villagers[0]!.progressMs).toBe(400);
       expect(loaded!.favors.nextOfferMs).toBe(FIRST_OFFER_MS);
-      expect(loaded!.favors.byVillager).toEqual([{ step: 0, active: false, progress: 0 }]);
+      expect(loaded!.favors.byVillager).toEqual(
+        Array.from({ length: 8 }, () => ({ step: 0, active: false, progress: 0 })),
+      );
       // v2 → v3 half: four empty plots, no pending arrivals, nothing else changes.
       expect(loaded!.structures.filter((s) => s.kind !== 'hut')).toEqual([]);
       const huts = loaded!.structures.filter((s) => s.kind === 'hut');
       expect(huts.map((h) => h.id)).toEqual(['hut-1', 'hut-2', 'hut-3', 'hut-4']);
       expect(huts.every((h) => !h.built)).toBe(true);
       expect(loaded!.arrivals).toEqual([]);
+    });
+
+    it('rejects a v1 roster outside [8, 12] after the chain (review I1)', () => {
+      const storage = makeStorageFake();
+      // Seven villagers survive the v1 and v2 shape checks; only the post-migration v3
+      // roster bound catches them, before they can drive castIndex off the cast table.
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob(7) }));
+      expect(loadGame(storage)).toBeNull();
     });
   });
 

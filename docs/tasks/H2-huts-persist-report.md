@@ -114,3 +114,47 @@ assertion; nothing else in the suite was edited).
 3. **No browser/`pnpm dev` pass** (rules): the migration path is fully covered by the unit suite,
    but nobody has yet booted the app against a real v2 localStorage blob — the orchestrator's
    post-wave live pass step 1 ("v2-save boot check") is still the outstanding evidence for that.
+
+---
+
+## Fix round after review — I1 (post-migration v3 validation)
+
+`docs/tasks/H-review-report.md` **I1** applied, primary fix exactly as specified.
+
+**1. Both migration branches now validate the migrated result** (`src/persist/index.ts`):
+
+```ts
+const v3 = migrateV2toV3(parsed.state); // v2 → v3 branch
+return isPlausibleState(v3) ? v3 : null;
+```
+
+…and identically for the v1 → v2 → v3 chain (after `createFavors`). The arrivals half of the new
+check is constructed by the migration itself, so the rule that actually starts enforcing is
+`villagers.length ∈ [8, 12]` on the **pre-existing** roster — the one bound the skip dropped, and
+the one that keeps `castIndex` inside `NEWCOMER_CAST` on a migrated save. `loadGame`'s doc comment
+was rewritten to say the migrated result is validated as v3.
+
+**2. `v1Blob()` widened to the realistic eight.** Signature is now `v1Blob(villagerCount = 8)`:
+the DESIGN §3 eight (Fern first, so every pre-existing assertion still holds), truncated only by
+the rejection test. The pre-existing B3 v1 test's *duplicate* 1-villager inline fixture would have
+been rejected by the new rule, so it now shares `v1Blob()` — its assertions are unchanged apart
+from the roster and favor-record counts (`1 → 8`); no coverage was removed or weakened.
+
+**3. New rejection tests (2):**
+
+| Test | Pins |
+|---|---|
+| v2 blob, 7 villagers + 7 favor records → `null` (passes v2 validation; only the v3 roster bound rejects) | v2 → v3 branch post-validation |
+| `v1Blob(7)` through the full chain → `null` | v1 → v2 → v3 branch post-validation |
+
+**4. Verification (fix round)**
+
+| Command | Result |
+|---|---|
+| `pnpm exec tsc --noEmit` | **exit 0 — 0 errors repo-wide** (the two H3 factory errors from concern 1 were fixed by their owner meanwhile) |
+| `pnpm build` | exit 0 (only the pre-existing >500 kB chunk warning) |
+| `pnpm test` | **216/216 pass, 11 files** — `src/persist/index.test.ts` **32/32** (30 → 32 = my +2). 209 baseline + my 2 + **5 added concurrently** in `src/sim/huts.test.ts` (23:54) and `src/ui/derive.test.ts` (23:55) by the other fix-round agents — not my files. |
+
+**Supersedes "Notes / interpretations" 1** above: post-migration v3 validation *is* applied now,
+and the 1-villager fixture rationale is gone (both v1 fixtures are the realistic eight). Notes 2
+(hut presence not required) and 3 (`MAX_CAST_INDEX`) are unaffected.
