@@ -282,4 +282,26 @@ describe('garden', () => {
     run(state, 30_000, 100);
     expect(state.resources.berries).toBe(2);
   });
+
+  it('emits one garden event per yield; none while not yielding', () => {
+    const state = createInitialState();
+    // Unbuilt: no yield, no event.
+    run(state, 30_000, 100);
+    expect(state.events.filter((e) => e.type === 'garden')).toHaveLength(0);
+
+    state.resources.wood = 25;
+    expect(buildStructure(state, 'garden')).toBe(true);
+    // Built but below the period: still nothing.
+    run(state, 29_900, 100);
+    expect(state.events.filter((e) => e.type === 'garden')).toHaveLength(0);
+
+    // Crossing 30000 ms: exactly one yield, exactly one event.
+    tick(state, 100);
+    expect(state.resources.berries).toBe(1);
+    expect(state.events).toEqual([{ type: 'garden' }]);
+
+    // Next tick yields nothing, so the event does not repeat.
+    tick(state, 100);
+    expect(state.events.filter((e) => e.type === 'garden')).toHaveLength(0);
+  });
 });

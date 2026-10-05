@@ -56,10 +56,10 @@ export function initAudio(): AudioHandle {
   let mealStreak = 0;
   const lastSfx: Record<string, number> = {
     chop: -10, gather: -10, 'rest-done': -10,
-    'fuel-add': -10, 'meal-cooked': -10, eat: -10, built: -10,
+    'fuel-add': -10, 'meal-cooked': -10, eat: -10, built: -10, garden: -10,
   };
 
-  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built';
+  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden';
 
   /** One enveloped oscillator voice with optional pitch glide and random-safe pan. */
   function voice(at: number, from: number, to: number, dur: number, peak: number, pan: number, type: OscillatorType): void {
@@ -157,6 +157,14 @@ export function initAudio(): AudioHandle {
     voice(ctx.currentTime + 0.01, 520 * v, 780 * v, 0.22, 0.08, rnd() * 0.6 - 0.3, 'sine');
   }
 
+  /** Garden yield: same sine-glide family as the bush gather, softer and +2 semitones up. */
+  function gardenPluck(): void {
+    if (!ctx) return;
+    const v = 1 + (rnd() * 2 - 1) * 0.08;
+    const k = Math.pow(2, 2 / 12); // +2 semitones over the bush gather
+    voice(ctx.currentTime + 0.01, 520 * k * v, 780 * k * v, 0.2, 0.05, rnd() * 0.6 - 0.3, 'sine');
+  }
+
   /** At most one SFX per event batch; each type has its own ~400 ms cooldown. */
   function playSfx(kind: SfxKind, now: number): void {
     if (now - (lastSfx[kind] ?? -10) < 0.4) return;
@@ -164,6 +172,7 @@ export function initAudio(): AudioHandle {
     switch (kind) {
       case 'chop': knock(); break;
       case 'gather': pluck(); break;
+      case 'garden': gardenPluck(); break;
       case 'rest-done': chime(); break;
       case 'fuel-add': thud(); break;
       case 'meal-cooked': mealBlip(advanceMealStreak(now)); break;
@@ -355,12 +364,15 @@ export function initAudio(): AudioHandle {
         if (rank > best) { best = rank; pick = kind; }
       };
       for (const ev of state.events) {
+        // Rarest first; garden sits just above the bush gather it resembles.
+        // Existing relative order is unchanged — garden only slots in.
         switch (ev.type) {
-          case 'built': consider('built', 6); break;
-          case 'meal-cooked': consider('meal-cooked', 5); break;
-          case 'rest-done': consider('rest-done', 4); break;
-          case 'eat': consider('eat', 3); break;
-          case 'fuel-add': consider('fuel-add', 2); break;
+          case 'built': consider('built', 7); break;
+          case 'meal-cooked': consider('meal-cooked', 6); break;
+          case 'rest-done': consider('rest-done', 5); break;
+          case 'eat': consider('eat', 4); break;
+          case 'fuel-add': consider('fuel-add', 3); break;
+          case 'garden': consider('garden', 2); break;
           case 'gather': consider('gather', 1); break;
           case 'chop': consider('chop', 0); break;
           default: break; // 'arrived': silent

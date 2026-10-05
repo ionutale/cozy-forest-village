@@ -50,7 +50,9 @@ export interface Villager {
 }
 
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built';
+  // B9-wave-B garden cadence (one-line additive change; see B4-report.md): 'garden'
+  // fires per berry yield so the player hears it. Matches no existing consumer.
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden';
   villagerId?: string;
   structureId?: string;
 }

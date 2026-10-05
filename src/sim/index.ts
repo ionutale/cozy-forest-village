@@ -154,6 +154,7 @@ export function tick(state: GameState, dtMs: number): void {
     while (state.gardenMs >= GARDEN_PERIOD_MS) {
       state.gardenMs -= GARDEN_PERIOD_MS;
       state.resources.berries += 1;
+      state.events.push({ type: 'garden' }); // one event per yield — the player hears it
     }
   }
   for (let i = 0; i < state.villagers.length; i += 1) {
