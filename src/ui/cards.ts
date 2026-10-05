@@ -2,8 +2,8 @@
 // doing right now, and whether they are well-fed. All writes are transition-guarded; the
 // heart's goodbye pulse (G3) is transition-started and timer-ended, never per-frame.
 
-import type { GameState } from '../sim';
-import { cardLabel } from './derive';
+import type { GameState, Villager } from '../sim';
+import { cardLabel, villagersNeedingCards } from './derive';
 import { HEART_ICON, must } from './markup';
 
 /** G3: the goodbye pulse's length; `.favor-heart.heart-pulse` in ui.css runs 2 × 300 ms. */
@@ -22,35 +22,71 @@ export interface CardParts {
   heartPulseTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** One card's markup. The label is seeded with its real value so a newcomer reads
+ *  "Arriving…" on its first frame instead of flashing "Idle" (H3). */
+function cardHtml(v: Villager): string {
+  return `<button class="villager-card lift" type="button" data-villager-id="${v.id}">
+            <span class="hat-dot"></span>
+            <span class="villager-name">${v.name}<span class="favor-heart" title="Has a favor to ask" style="color:var(--accent);margin-left:5px;vertical-align:-1px" hidden>${HEART_ICON}</span></span>
+            <span class="task-label">${cardLabel(v)}</span>
+          </button>`;
+}
+
+/** Registers the parts of the card at `index` and paints its hat colour. */
+function registerCard(
+  list: HTMLElement,
+  cards: Map<string, CardParts>,
+  index: number,
+  v: Villager,
+): void {
+  const card = list.children[index];
+  if (!(card instanceof HTMLElement)) return;
+  cards.set(v.id, {
+    card,
+    label: must<HTMLElement>(card, '.task-label'),
+    heart: must<HTMLElement>(card, '.favor-heart'),
+    fed: false,
+    favor: false,
+    heartPulseTimer: null,
+  });
+  must<HTMLElement>(card, '.hat-dot').style.background = v.hatColor;
+}
+
 export function buildCards(
   list: HTMLElement,
   cards: Map<string, CardParts>,
   state: GameState,
 ): void {
-  const html = state.villagers
-    .map(
-      (v) =>
-        `<button class="villager-card lift" type="button" data-villager-id="${v.id}">
-            <span class="hat-dot"></span>
-            <span class="villager-name">${v.name}<span class="favor-heart" title="Has a favor to ask" style="color:var(--accent);margin-left:5px;vertical-align:-1px" hidden>${HEART_ICON}</span></span>
-            <span class="task-label">Idle</span>
-          </button>`,
-    )
-    .join('');
-  list.innerHTML = html;
-  state.villagers.forEach((v, i) => {
-    const card = list.children[i];
-    if (!(card instanceof HTMLElement)) return;
-    cards.set(v.id, {
-      card,
-      label: must<HTMLElement>(card, '.task-label'),
-      heart: must<HTMLElement>(card, '.favor-heart'),
-      fed: false,
-      favor: false,
-      heartPulseTimer: null,
-    });
-    must<HTMLElement>(card, '.hat-dot').style.background = v.hatColor;
-  });
+  list.innerHTML = state.villagers.map(cardHtml).join('');
+  state.villagers.forEach((v, i) => registerCard(list, cards, i, v));
+}
+
+/**
+ * H3: append only the villagers that have no card yet. Existing cards are left completely
+ * untouched — no `innerHTML` rewrite, no re-registration — so a newcomer's arrival cannot
+ * reset an old card's fed tint, its favor heart, or its in-flight G3 goodbye pulse.
+ */
+export function appendCards(
+  list: HTMLElement,
+  cards: Map<string, CardParts>,
+  state: GameState,
+): number {
+  const missing = villagersNeedingCards(cards.size, state.villagers.length);
+  if (missing.length === 0) return 0;
+  const html: string[] = [];
+  for (const i of missing) {
+    const v = state.villagers[i];
+    if (v) html.push(cardHtml(v));
+  }
+  if (html.length === 0) return 0;
+  // One insert for the whole batch: appending per card would reflow the list N times. The list
+  // is only ever appended to, so `list.children[i]` stays index-aligned with `state.villagers[i]`.
+  list.insertAdjacentHTML('beforeend', html.join(''));
+  for (const i of missing) {
+    const v = state.villagers[i];
+    if (v) registerCard(list, cards, i, v);
+  }
+  return html.length;
 }
 
 /**

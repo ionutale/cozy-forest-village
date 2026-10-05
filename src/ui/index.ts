@@ -9,7 +9,7 @@
 // This file owns selection state, event wiring, and the per-frame pump.
 
 import type { GameState, Structure, TaskId } from '../sim';
-import { buildCards, cancelHeartPulse, syncCards, type CardParts } from './cards';
+import { appendCards, buildCards, cancelHeartPulse, syncCards, type CardParts } from './cards';
 import {
   DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState,
   firstFavorDoneVillagerId, hintRecomputeDue, villageLine,
@@ -86,15 +86,24 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     actions.onSelect(null);
   }
 
+  /** Transition-only: `syncActiveButtons` runs every frame while a villager is selected, so an
+   *  unconditional `setAttribute` here would be a per-frame DOM write. */
   function setDisabled(btn: HTMLButtonElement, disabled: boolean): void {
-    btn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    const next = disabled ? 'true' : 'false';
+    if (btn.getAttribute('aria-disabled') !== next) btn.setAttribute('aria-disabled', next);
   }
 
   function syncActiveButtons(state: GameState): void {
-    const task = state.villagers.find((v) => v.id === selectedId)?.task ?? null;
+    const villager = state.villagers.find((v) => v.id === selectedId);
+    const task = villager?.task ?? null;
+    // H3: a walk-in cannot be given a task (the sim refuses), so the grid does not pretend
+    // otherwise. Every task button — Stop included — is disabled until they finish walking in.
+    const arriving = villager?.state === 'arriving';
     for (const btn of taskGrid.querySelectorAll<HTMLButtonElement>('.task-btn')) {
       btn.classList.toggle('active', btn.dataset.task === task);
+      if (arriving) setDisabled(btn, true);
     }
+    if (arriving) return; // cook/stop gating is moot while the whole grid is disabled
     // Stop is the inverse of a task: nothing to stop while the villager already has none.
     setDisabled(stopBtn, task === null);
     // Cooking needs something to cook in.
@@ -274,6 +283,9 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       const fire = fireState(state.fire.fuel, state.fire.max);
       if (fuelPill.dataset.state !== fire) fuelPill.dataset.state = fire;
 
+      // H3: a newcomer's arrival grows the roster; append just their card. Existing cards are
+      // never rewritten, so their transition state (fed tint, favor heart, pulse) survives.
+      if (cards.size !== state.villagers.length) appendCards(list, cards, state);
       syncCards(cards, state);
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) card.sync(state, selectedStructure(state));

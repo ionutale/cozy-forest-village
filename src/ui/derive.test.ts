@@ -8,6 +8,7 @@ import type { FavorProgress, FavorWant, GameState, SimEvent, Villager } from '..
 import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
 import {
   DEFAULT_HINT,
+  STRUCTURE_NAMES,
   THANK_YOU_MS,
   cardLabel,
   delightText,
@@ -21,6 +22,7 @@ import {
   hintRecomputeDue,
   secondsToBerry,
   villageLine,
+  villagersNeedingCards,
 } from './derive';
 
 function villager(id: string, over: Partial<Villager> = {}): Villager {
@@ -63,6 +65,8 @@ function state(over: Partial<GameState> = {}): GameState {
     events: [],
     pendingEvents: [],
     favors: favors(),
+    // H1 added `arrivals` to GameState (batch 6 walk-ins); the fixtures default it empty.
+    arrivals: [],
     ...over,
   };
 }
@@ -550,6 +554,14 @@ describe('cardLabel', () => {
   it('a working villager with no task reads Idle, not undefined', () => {
     expect(cardLabel(villager('v1', { state: 'working', task: null }))).toBe('Idle');
   });
+
+  it('H3: an arriving newcomer reads Arriving\u2026', () => {
+    expect(cardLabel(villager('v9', { state: 'arriving' }))).toBe('Arriving\u2026');
+  });
+
+  it('H3: Arriving\u2026 wins over any task, because a walk-in has none yet', () => {
+    expect(cardLabel(villager('v9', { state: 'arriving', task: null }))).toBe('Arriving\u2026');
+  });
 });
 
 describe('fireState', () => {
@@ -571,5 +583,47 @@ describe('firstById', () => {
     const a = villager('v9');
     const b = villager('v3');
     expect(firstById([a, b], () => true)?.id).toBe('v3');
+  });
+});
+
+describe('villagersNeedingCards (H3 card reconcile)', () => {
+  it('returns nothing when the rendered count already matches', () => {
+    expect(villagersNeedingCards(8, 8)).toEqual([]);
+    expect(villagersNeedingCards(12, 12)).toEqual([]);
+    expect(villagersNeedingCards(0, 0)).toEqual([]);
+  });
+
+  it('returns the whole range when the roster grows from empty', () => {
+    expect(villagersNeedingCards(0, 8)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('returns only the new tail indices', () => {
+    expect(villagersNeedingCards(8, 9)).toEqual([8]);
+    expect(villagersNeedingCards(8, 12)).toEqual([8, 9, 10, 11]);
+  });
+
+  it('never returns anything when the roster shrinks (villagers are never removed)', () => {
+    expect(villagersNeedingCards(12, 8)).toEqual([]);
+  });
+
+  it('tolerates nonsense counts instead of looping forever', () => {
+    expect(villagersNeedingCards(-3, 2)).toEqual([0, 1]);
+    expect(villagersNeedingCards(4, Number.NaN)).toEqual([]);
+    expect(villagersNeedingCards(4, Number.POSITIVE_INFINITY)).toEqual([]);
+  });
+});
+
+describe('STRUCTURE_NAMES (H3 huts)', () => {
+  it('names a hut', () => {
+    expect(STRUCTURE_NAMES.hut).toBe('Hut');
+  });
+
+  it('still names the batch-2 kinds', () => {
+    expect(STRUCTURE_NAMES.woodpile).toBe('Woodpile');
+    expect(STRUCTURE_NAMES.pot).toBe('Cooking pot');
+    expect(STRUCTURE_NAMES.bench).toBe('Bench');
+    expect(STRUCTURE_NAMES.garden).toBe('Garden');
+    expect(STRUCTURE_NAMES.lantern).toBe('Lantern');
+    expect(STRUCTURE_NAMES.feeder).toBe('Bird feeder');
   });
 });

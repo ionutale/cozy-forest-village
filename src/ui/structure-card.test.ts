@@ -119,6 +119,8 @@ function state(over: Partial<GameState> = {}): GameState {
     events: [],
     pendingEvents: [],
     favors: { byVillager: [], nextOfferMs: 0 },
+    // H1 made `arrivals` required on GameState (batch 6 walk-ins); this fixture predates it.
+    arrivals: [],
     ...over,
   };
 }

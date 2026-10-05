@@ -139,7 +139,26 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
    villager list below never shifts when the line changes. Cost: ~15px of quiet air at rest. */
 .panel-hint { margin: -4px 0 0; min-height: 2.4em; color: var(--ink-soft); font-size: 12.5px; }
 
-#villager-list { display: flex; flex-direction: column; gap: var(--gap); }
+/* H3: batch 6 grows the roster past the eight founding villagers. The list gets its own quiet
+   scroll so the popover below it stays put, and the column is tall enough that eight cards
+   never show a scrollbar — the first batch-6 arrival must not shift the layout. */
+#villager-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  max-height: 360px;
+  overflow-y: auto;
+  /* Room for the scrollbar so it never overlays a card's right edge. */
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+#villager-list::-webkit-scrollbar { width: 8px; }
+
+#villager-list::-webkit-scrollbar-track { background: transparent; }
+
+#villager-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 .villager-card {
   display: grid;

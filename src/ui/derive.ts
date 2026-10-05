@@ -32,10 +32,26 @@ export const WORK_LABELS: Record<TaskId, string> = {
 
 /** Card label: what the villager is doing *now*, not what they were told to do (M11b). */
 export function cardLabel(villager: Villager): string {
+  // H3: a walk-in has no task and cannot be given one, so "Arriving…" outranks everything.
+  if (villager.state === 'arriving') return 'Arriving…';
   if (villager.state === 'walking') return 'Walking…';
   if (villager.state === 'resting') return 'Resting';
   if (villager.state === 'working' && villager.task) return WORK_LABELS[villager.task];
   return 'Idle';
+}
+
+/**
+ * H3: which villager indices still need a card. The roster only ever grows (cap 12, batch 6
+ * newcomers append), so this is a tail range — but the guards matter: a shrinking or corrupt
+ * count must return nothing rather than a negative-index loop.
+ */
+export function villagersNeedingCards(renderedCount: number, total: number): number[] {
+  const from = Math.max(0, Math.floor(renderedCount));
+  if (!(total > from)) return [];
+  if (!Number.isFinite(total)) return [];
+  const needed: number[] = [];
+  for (let i = from; i < Math.floor(total); i += 1) needed.push(i);
+  return needed;
 }
 
 /**
@@ -290,6 +306,7 @@ export const STRUCTURE_NAMES: Record<StructureKind, string> = {
   garden: 'Garden',
   lantern: 'Lantern',
   feeder: 'Bird feeder',
+  hut: 'Hut', // H3: batch 6
 };
 
 /** The fire band name the HUD pill's `data-state` and the hint both read, so they never disagree. */
