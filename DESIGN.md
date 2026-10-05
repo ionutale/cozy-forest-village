@@ -61,10 +61,19 @@ export interface Villager {
   targetNodeId: string | null;  // resolves against nodes OR structures
 }
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden';
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done';
   villagerId?: string;
   structureId?: string;
 }
+export type FavorWant =
+  | { kind: 'eat'; who: 'self' | 'any'; count: number } // eat events (requester or anyone)
+  | { kind: 'gather'; count: number }
+  | { kind: 'chop'; count: number }
+  | { kind: 'build'; count: number }
+  | { kind: 'fire'; ms: number };                       // ms accumulated with fuel ≥ 33
+export interface FavorProgress { step: number; active: boolean; progress: number }
+export interface FavorsState { byVillager: FavorProgress[]; nextOfferMs: number }
+
 export interface GameState {
   tick: number;              // increments once per tick() call
   seed: number;
@@ -77,6 +86,7 @@ export interface GameState {
   gardenMs: number;          // accumulator for the built garden's +1 berry / 30000 ms
   events: SimEvent[];        // events from the latest tick; cleared at the start of each tick
   pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
+  favors: FavorsState;       // batch 4: per-villager favor chains (binding rules in §3.2)
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -85,6 +95,11 @@ export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berr
 export const GARDEN_PERIOD_MS: number;
 export const COOK_BERRIES: number;
 export const COOK_WOOD: number;
+export const FIRST_OFFER_MS: number;
+export const NEXT_OFFER_GAP_MS: number;
+export const MAX_ACTIVE_FAVORS: number;
+export const CHAIN_LENGTH: number;
+export function createFavors(villagerCount: number): FavorsState;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -137,10 +152,11 @@ export interface UIHandle {
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 ```
 
-Contract rules: other layers import **types** and the read-only data constants
-(`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`) from `../sim`, and **nothing
-else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`, `world.ts`) are
-implementation detail.
+Contract rules: other layers import **types**, the read-only data constants
+(`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`, `FIRST_OFFER_MS`,
+`NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`) and the `createFavors` factory from
+`../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
+`world.ts`, `favors.ts`) are implementation detail.
 
 ### 3.1 Simulation rules (slice 1 — binding numbers)
 
@@ -207,6 +223,15 @@ implementation detail.
   unknown / already built / unaffordable.
 - **Garden**: while built, +1 berry every **30000 ms** (`gardenMs` in the state); each yield emits a
   `garden` event (the audio layer plays it as a soft pluck).
+- **Favor chains** (batch 4; full spec `docs/superpowers/specs/2026-10-05-villager-favors-design.md`):
+  each villager has a **3-step** chain; at most **2** favors active at once; the first offer arrives
+  after **120000 ms** of play and offers are separated by ≥ **90000 ms** (re-armed per offer,
+  re-enforced after each completion). Completion is event-driven (`eat`/`gather`/`chop`/`build`) or
+  accumulated `fuel ≥ 33` time (**120000 ms** for the fire favor); a completion advances the chain,
+  emits `favor-done` and enforces the 90000 ms gap. Favors never expire. Offering and requester
+  selection are deterministic pure derives from `seed` (no stored RNG state). Chain content: step 1
+  `{eat, self, 1}`; step 2 even index `{gather, 6}` / odd `{chop, 4}`; step 3 `index % 3` →
+  `{eat, any, 3}` / `{build, 1}` / `{fire, 120000}`.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
