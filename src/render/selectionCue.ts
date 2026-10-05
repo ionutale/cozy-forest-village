@@ -31,6 +31,7 @@ const FOOTPRINT: Record<StructureKind, number> = {
   garden: 0.72,
   lantern: 0.3,
   feeder: 0.34,
+  hut: 0.66, // batch 6: the cabin's own 1.16 u pad (half-width 0.58) plus a little air
 };
 const CUE_Y = 0.035; // above the grass (0), the clearing disc (0.01) and the garden patch (0.02)
 const CUE_FADE_MS = 220; // DESIGN §2 pillar 4: the cue eases in and out, it never snaps

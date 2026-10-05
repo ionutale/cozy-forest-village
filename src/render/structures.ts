@@ -18,6 +18,12 @@
 // B2: the ground cue that says *which* structure is selected now lives beside this file in
 // `selectionCue.ts` (WD2); it is still untagged, so `pick` skips a hit on it and the scan
 // continues to the structure behind it.
+//
+// Batch 6: the `hut` model is the first kind with a *building* read rather than a prop — an earth
+// pad, trunk-toned walls, a gable roof in a foliage hue and a door panel (spec Part 4). It is four
+// static parts, so it merges into the same single `solid` chunk as everything else and a hut costs
+// one draw call built and one as a ghost, with the ghost reusing those very buffers under
+// `ghostMat`. Nothing about it moves, so it adds no instanced cue and no per-frame work.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -56,6 +62,15 @@ const STEAM_PLUMP = 0.12;
 const STEAM_PLUMP_MAX = 1 + STEAM_PLUMP * (MEAL_BOWLS - MEAL_STACK);
 /** A5: the widest a sprout ever sways, as a roll in radians. */
 const SPROUT_SWAY = 0.05;
+
+/* Batch 6: the hut roof's three numbers are arithmetic rather than taste, so they live here and the
+ * `case 'hut'` block can explain them once. The roof is a 3-segment cylinder — a triangular prism
+ * with one segment fewer than a box — stood on its side: `HUT_ROOF_R` sets how wide the eaves reach,
+ * `HUT_ROOF_FLAT` squashes the equilateral section (which would pitch at 60°) down to ~33°, and
+ * `HUT_ROOF_Y` drops the eave line just inside the wall top so no hairline gap shows at the eaves. */
+const HUT_ROOF_R = 0.68;
+const HUT_ROOF_FLAT = 0.38;
+const HUT_ROOF_Y = 0.809;
 
 type Vec3 = readonly [number, number, number];
 type Rot3 = readonly [number, number, number];
@@ -326,6 +341,28 @@ export function createStructures(): StructuresLayer {
         for (const x of [-0.07, 0, 0.07]) {
           parts.push({ geo: new THREE.SphereGeometry(0.035, 6, 5), color: PALETTE.rock, pos: [x, 0.78, 0.02] });
         }
+        break;
+      }
+      case 'hut': {
+        // Batch 6, spec Part 4: a low-poly cabin, sized against a 0.97 u villager — one doorway
+        // wide, 1.07 to the ridge, so it is a small cabin rather than a hall. Soil-toned pad,
+        // trunk-toned walls, a foliage roof and a dark door: three tones, one per surface, no
+        // texture work.
+        parts.push({ geo: new THREE.BoxGeometry(1.16, 0.1, 1.16), color: PALETTE.soil, pos: [0, 0.05, 0] });
+        parts.push({ geo: new THREE.BoxGeometry(1.0, 0.6, 1.0), color: PALETTE.trunk, pos: [0, 0.4, 0] });
+        // The roof prism lies on its side: the rotation stands the apex up and runs the ridge along
+        // z, so its triangular caps are the two gable ends and the +z one — the face `faceFire`
+        // turns toward the campfire — is the gable wall a newcomer walks up to.
+        parts.push({
+          geo: new THREE.CylinderGeometry(HUT_ROOF_R, HUT_ROOF_R, 1.16, 3),
+          color: PALETTE.foliageA,
+          pos: [0, HUT_ROOF_Y, 0],
+          rot: [-Math.PI / 2, 0, 0],
+          scale: [1, 1, HUT_ROOF_FLAT],
+        });
+        // The door is sunk 0.02 into the wall face rather than laid flush on it, so the panel and
+        // the wall never share a plane (no z-fighting) and it still reads as a panel, not a hole.
+        parts.push({ geo: new THREE.BoxGeometry(0.3, 0.4, 0.06), color: PALETTE.cauldron, pos: [0, 0.3, 0.51] });
         break;
       }
     }

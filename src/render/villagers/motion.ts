@@ -51,7 +51,11 @@ export function pose(villager: Villager, rig: Rig, timeSec: number, chill: numbe
   const t = timeSec + rig.phase; // per-villager offset: nobody animates in lockstep
   let out: Pose;
   switch (villager.state) {
-    case 'walking': {
+    // Batch 6: a newcomer's walk-in is `'arriving'` for the whole walk (H1 flips it to `'idle'` on
+    // arrival), so that state falls through here — same step bob, lean and arm swing as any walker.
+    // Without it the walk-in glided on the idle pose.
+    case 'walking':
+    case 'arriving': {
       const step = t * STEP_RATE;
       out = { bob: Math.abs(Math.sin(step)) * BOB_STEP - BOB_STEP / 2, lean: 0.06, swing: Math.sin(step) * 0.5, raise: 0, stir: 0 };
       break;
