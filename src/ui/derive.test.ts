@@ -10,6 +10,7 @@ import {
   DEFAULT_HINT,
   THANK_YOU_MS,
   cardLabel,
+  delightText,
   favorLine,
   favorPopoverLine,
   favorProgressText,
@@ -202,7 +203,7 @@ describe('villageLine — the favor line', () => {
         }),
         null,
       ),
-    ).toBe('V3 would love the fire kept warm for two minutes (1:12/2:00).');
+    ).toBe('V3 would love the fire tended for two minutes (1:12/2:00).');
   });
 
   it('with two active favors the line follows villager id, not array order', () => {
@@ -306,13 +307,107 @@ describe('hintRecomputeDue — cadence + thanks-window edges (M6)', () => {
 });
 
 describe('favorText — UI-owned flavor copy', () => {
-  it('maps every want kind (and eat requester) to its DESIGN §3.2 phrase', () => {
-    expect(favorText({ kind: 'eat', who: 'self', count: 1 })).toBe('a warm meal');
-    expect(favorText({ kind: 'eat', who: 'any', count: 3 })).toBe('a feast for the village');
-    expect(favorText({ kind: 'gather', count: 6 })).toBe('berries for the village');
-    expect(favorText({ kind: 'chop', count: 4 })).toBe('firewood for the village');
-    expect(favorText({ kind: 'build', count: 1 })).toBe('something new built');
-    expect(favorText({ kind: 'fire', ms: 120_000 })).toBe('the fire kept warm for two minutes');
+  it('maps every want kind (and eat requester) to its DESIGN §3.2 phrase in the slot-0 voice', () => {
+    expect(favorText({ kind: 'eat', who: 'self', count: 1 }, 'V1')).toBe('a warm meal');
+    expect(favorText({ kind: 'eat', who: 'any', count: 3 }, 'V1')).toBe('a feast for the village');
+    expect(favorText({ kind: 'gather', count: 6 }, 'V1')).toBe('berries for the village');
+    expect(favorText({ kind: 'chop', count: 4 }, 'V1')).toBe('firewood for the village');
+    expect(favorText({ kind: 'build', count: 1 }, 'V1')).toBe('something new built');
+    expect(favorText({ kind: 'fire', ms: 120_000 }, 'V1')).toBe('the fire kept warm for two minutes');
+  });
+});
+
+describe('favorText / delightText — per-villager voice (G2)', () => {
+  // The shipped roster (src/sim/villagers.ts), so the spread checks reflect the real village.
+  const ROSTER = ['Maple', 'Birch', 'Fern', 'Pip', 'Hazel', 'Juniper', 'Moss', 'Clover'];
+  const WANTS: readonly FavorWant[] = [
+    { kind: 'eat', who: 'self', count: 1 },
+    { kind: 'eat', who: 'any', count: 3 },
+    { kind: 'gather', count: 6 },
+    { kind: 'chop', count: 4 },
+    { kind: 'build', count: 1 },
+    { kind: 'fire', ms: 120_000 },
+  ];
+
+  it('every (villager, want) maps to one stable string across repeated calls', () => {
+    for (const name of ROSTER) {
+      for (const want of WANTS) {
+        const first = favorText(want, name);
+        for (let call = 0; call < 5; call += 1) {
+          expect(favorText(want, name)).toBe(first);
+        }
+      }
+    }
+  });
+
+  it('at least two distinct variants appear across the eight villagers for every want', () => {
+    for (const want of WANTS) {
+      const variants = new Set(ROSTER.map((name) => favorText(want, name)));
+      expect(variants.size).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('keeps every want phrase short, warm and free of undefined/NaN', () => {
+    for (const name of ROSTER) {
+      for (const want of WANTS) {
+        const phrase = favorText(want, name);
+        expect(phrase.length).toBeGreaterThan(0);
+        expect(phrase.length).toBeLessThanOrEqual(45);
+        expect(phrase).not.toMatch(/undefined|NaN/);
+      }
+    }
+  });
+
+  it('pins a few shipped voices — a hash change is a content change', () => {
+    expect(favorText({ kind: 'eat', who: 'self', count: 1 }, 'Fern')).toBe('a warm meal');
+    expect(favorText({ kind: 'chop', count: 4 }, 'Pip')).toBe('fresh logs for the fire');
+    expect(delightText('Moss')).toBe('Moss looks so happy!');
+  });
+
+  it('delight variants are stable per villager, named and spread across the roster', () => {
+    const lines = ROSTER.map((name) => delightText(name));
+    for (const [i, name] of ROSTER.entries()) {
+      const line = lines[i]!;
+      expect(delightText(name)).toBe(line);
+      expect(line.startsWith(`${name} `)).toBe(true);
+      expect(line.length).toBeLessThanOrEqual(45);
+      expect(line).not.toMatch(/undefined|NaN/);
+    }
+    expect(new Set(lines).size).toBeGreaterThanOrEqual(2);
+  });
+
+  it("villageLine renders each villager's delight phrasing in the thanks slot", () => {
+    for (const name of ROSTER) {
+      expect(villageLine(state(), name)).toBe(delightText(name));
+    }
+  });
+
+  it('hint and popover agree on the phrase for a villager; the other slot stays hidden', () => {
+    const names = ['Fern', 'Pip', 'Juniper'];
+    for (let i = 0; i < names.length; i += 1) {
+      for (let step = 0; step <= 2; step += 1) {
+        const s = state({
+          villagers: names.map((name, j) => villager(`v${j + 1}`, { name })),
+          favors: favors(names.map((_, j) => ({ step, active: j === i, progress: 0 }))),
+        });
+        const want = favorWantFor(i, step);
+        if (want === null) continue; // unreachable for steps 0–2; keeps the type honest
+        const name = names[i]!;
+        const phrase = favorText(want, name);
+        const tail = favorProgressText(want, 0);
+        expect(villageLine(s, null)).toBe(`${name} would love ${phrase} ${tail}.`);
+        expect(favorPopoverLine(s, i)).toBe(`Favor: ${phrase} ${tail}`);
+        expect(favorPopoverLine(s, (i + 1) % names.length)).toBeNull();
+      }
+    }
+  });
+
+  it('a malformed save with no villager data still yields a full phrase, never undefined', () => {
+    const s = state({ villagers: [], favors: favors([{ active: true, progress: 0 }]) });
+    const line = favorPopoverLine(s, 0);
+    expect(line).not.toBeNull();
+    expect(line).toMatch(/^Favor: .+ \(0\/1\)$/);
+    expect(line).not.toMatch(/undefined|NaN/);
   });
 });
 

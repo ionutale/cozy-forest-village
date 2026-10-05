@@ -75,13 +75,15 @@ export function firstById(
  *
  * Batch 4 priority: `embers > favor > dimming > cooking > well-fed > meals > roaring > default`.
  * `thanks` (a villager name from the UI's 6 s post-`favor-done` window) *replaces* the favor line
- * rather than stacking with it — the two can never render together.
+ * rather than stacking with it — the two can never render together. Batch 5: the thank-you line
+ * uses that villager's personal delight phrasing (`delightText`), chosen by the same name-keyed
+ * voice as their want line.
  */
 export function villageLine(state: GameState, thanks: string | null): string {
   // `<= 0` rather than `=== 0` so a bad save cannot slip past the most urgent line. A NaN fuel
   // fails every comparison and falls through to the default hint rather than throwing.
   if (state.fire.fuel <= 0) return 'Only embers left — someone should tend the fire.';
-  if (thanks !== null) return `${thanks} is delighted!`;
+  if (thanks !== null) return delightText(thanks);
   const favor = favorLine(state);
   if (favor !== null) return favor;
   const ratio = state.fire.max > 0 ? state.fire.fuel / state.fire.max : 0;
@@ -126,22 +128,75 @@ export function hintRecomputeDue(
 }
 
 /**
- * Batch 4: UI-owned flavor copy for a favor want (the DESIGN §3.2 "Favor chains" table's last
- * column), like `STRUCTURE_NAMES` — the sim owns chain content, the words are presentation.
+ * Batch 5 (G2): a stable 0-based "voice" slot for a villager, from a tiny FNV-1a hash of their
+ * name. Same villager, same words — deterministic across calls, frames and reloads, never
+ * `Math.random`. The name is the shared key because the thank-you window (`villageLine`'s
+ * `thanks`) only ever carries a name, so a villager's want line and delight line pick from the
+ * same slot.
  */
-export function favorText(want: FavorWant): string {
+function voiceIndex(name: string, variants: number): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % variants;
+}
+
+/**
+ * Batch 5 (G2): the warm per-villager variants per want category; slot 0 is the batch-4
+ * DESIGN §3.2 phrase in every table. Every variant must read naturally after "would love"
+ * (hint) and after "Favor: " (popover), so keep them short, warm and self-contained.
+ */
+const WANT_VARIANTS: Record<'eatSelf' | 'eatAny' | 'gather' | 'chop' | 'build' | 'fire', readonly string[]> = {
+  eatSelf: ['a warm meal', 'a cozy meal by the fire', 'something warm to eat'],
+  eatAny: ['a feast for the village', 'a shared feast tonight', 'a village-wide feast'],
+  gather: ['berries for the village', 'a basket of berries', 'sweet berries to share'],
+  chop: ['firewood for the village', 'a stack of firewood', 'fresh logs for the fire'],
+  build: ['something new built', 'a cozy new building', 'something built with care'],
+  fire: [
+    'the fire kept warm for two minutes',
+    'the fire tended for two minutes',
+    'the hearth kept glowing for two minutes',
+  ],
+};
+
+/** Batch 5 (G2): the thank-you variants; slot 0 is the batch-4 line. */
+const DELIGHT_SUFFIXES: readonly string[] = ['is delighted!', 'beams with joy!', 'looks so happy!'];
+
+/** The variant table for a want — `eat` splits on who the meal is for, as the copy always did. */
+function wantVariants(want: FavorWant): readonly string[] {
   switch (want.kind) {
     case 'eat':
-      return want.who === 'any' ? 'a feast for the village' : 'a warm meal';
+      return want.who === 'any' ? WANT_VARIANTS.eatAny : WANT_VARIANTS.eatSelf;
     case 'gather':
-      return 'berries for the village';
+      return WANT_VARIANTS.gather;
     case 'chop':
-      return 'firewood for the village';
+      return WANT_VARIANTS.chop;
     case 'build':
-      return 'something new built';
+      return WANT_VARIANTS.build;
     case 'fire':
-      return 'the fire kept warm for two minutes';
+      return WANT_VARIANTS.fire;
   }
+}
+
+/**
+ * Batch 4/5: UI-owned flavor copy for a favor want (the DESIGN §3.2 "Favor chains" table's last
+ * column), like `STRUCTURE_NAMES` — the sim owns chain content, the words are presentation.
+ * Batch 5: `villagerName` selects one of the category's warm variants through the villager's
+ * stable personal voice (`voiceIndex`), so the same person always sounds like themselves.
+ */
+export function favorText(want: FavorWant, villagerName: string): string {
+  const variants = wantVariants(want);
+  return variants[voiceIndex(villagerName, variants.length)]!;
+}
+
+/**
+ * Batch 5 (G2): the completion line — `"{Name} is delighted!"` and two warm siblings, chosen
+ * per villager by the same stable voice. Pure; `villageLine` owns when it renders.
+ */
+export function delightText(name: string): string {
+  return `${name} ${DELIGHT_SUFFIXES[voiceIndex(name, DELIGHT_SUFFIXES.length)]!}`;
 }
 
 /** Floor seconds as `m:ss`: `72000 → "1:12"`. Nonsense input reads as zero, never "NaN:NaN". */
@@ -187,13 +242,13 @@ function activeFavor(
 /**
  * Batch 4: `"{Name} would love {want} {progress}."` for one villager, or null when that villager
  * has no active favor. Pure; the caller decides which villager (the hint picks by id, the
- * popover picks the current selection).
+ * popover picks the current selection). Batch 5: the want phrase is personalized per name.
  */
 function favorLineFor(state: GameState, villagerIndex: number): string | null {
   const active = activeFavor(state, villagerIndex);
   const name = state.villagers[villagerIndex]?.name;
   if (!active || !name) return null;
-  return `${name} would love ${favorText(active.want)} ${favorProgressText(active.want, active.progress)}.`;
+  return `${name} would love ${favorText(active.want, name)} ${favorProgressText(active.want, active.progress)}.`;
 }
 
 /**
@@ -215,11 +270,16 @@ export function favorLine(state: GameState): string | null {
   return bestLine;
 }
 
-/** Batch 4: the popover's `Favor: {want} {progress}` line, or null when no active favor. */
+/**
+ * Batch 4: the popover's `Favor: {want} {progress}` line, or null when no active favor.
+ * Batch 5: the want phrase follows the selected villager's voice; a missing name (only possible
+ * on a malformed save) falls back to the empty-name voice rather than "undefined".
+ */
 export function favorPopoverLine(state: GameState, villagerIndex: number): string | null {
   const active = activeFavor(state, villagerIndex);
   if (!active) return null;
-  return `Favor: ${favorText(active.want)} ${favorProgressText(active.want, active.progress)}`;
+  const name = state.villagers[villagerIndex]?.name ?? '';
+  return `Favor: ${favorText(active.want, name)} ${favorProgressText(active.want, active.progress)}`;
 }
 
 /** Popover title for a structure card. Both lanterns share a name; their ids stay distinct. */
