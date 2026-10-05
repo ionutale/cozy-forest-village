@@ -6,6 +6,7 @@ import { createEnvironment, type Environment } from './environment';
 import { createAmbient, type AmbientLayer } from './ambient';
 import { createStructures, type StructuresLayer } from './structures';
 import { createVillagers, type VillagersLayer } from './villagers';
+import { createTrader, type TraderLayer } from './trader';
 
 export interface RenderHandle {
   render(state: GameState, dtMs: number): void;
@@ -26,6 +27,10 @@ export interface RenderHandle {
   setSelectedStructure(structureId: string | null): void;
   /** G5: gently ease the camera target toward a villager; null cancels any running ease. */
   focusVillager(villagerId: string | null): void;
+  /** T4 (batch 7): screen-space hit test for the trader while visiting (client px). */
+  pickTrader(clientX: number, clientY: number): boolean;
+  /** T4 (batch 7): the trader's selection ring on/off. */
+  setTraderSelected(on: boolean): void;
 }
 
 declare global {
@@ -104,8 +109,11 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   let villagers: VillagersLayer | null = null;
   let ambientLayer: AmbientLayer | null = null;
   let structures: StructuresLayer | null = null;
+  let trader: TraderLayer | null = null;
   let selectedId: string | null = null; // kept here so the ring survives layer re-creation
   let selectedStructureId: string | null = null; // B2: same reason — survives layer re-creation
+  // T4 (batch 7): the trader's ring, parked here for the same reason as the two above.
+  let traderSelected = false;
   // G5: villager the orbit rig is easing toward; null while no ease runs. Any canvas pointerdown
   // clears it, so an orbit drag always wins over a running ease.
   let focusId: string | null = null;
@@ -155,6 +163,10 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
         structures = createStructures();
         scene.add(structures.group);
       }
+      if (!trader) {
+        trader = createTrader();
+        scene.add(trader.group);
+      }
       const timeSec = performance.now() / 1000;
       // B4's Environment takes the live fire state; without it the flame falls back to the
       // `__cozy` hook, so pass the real thing.
@@ -162,10 +174,14 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       villagers.update(state, timeSec, dtMs);
       ambientLayer.update(state, timeSec, dtMs);
       structures.update(state, timeSec);
+      trader.update(state, timeSec);
       villagers.setSelected(selectedId);
       // B2: re-applied every frame for the same reason — `structures` is created lazily on the
       // first render, so a click that lands before that frame must still be honoured.
       structures.setSelectedStructure(selectedStructureId);
+      // T4: re-applied every frame for the same reason as the two cues above — `trader` is created
+      // lazily on the first render, so a click that lands before that frame must still be honoured.
+      trader.setSelected(traderSelected);
       // G5: ease the orbit rig toward the focused villager. The target leads and the camera is
       // translated by the same delta, so view direction and orbit distance stay untouched. The
       // focus point is clamped to FOCUS_RADIUS_MAX around the village centre, and inside the
@@ -230,14 +246,27 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       raycaster.setFromCamera(ndc, camera);
       return structures.pick(raycaster);
     },
+    pickTrader(clientX: number, clientY: number): boolean {
+      if (!trader) return false;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return trader.pick(raycaster);
+    },
+    setTraderSelected(on: boolean): void {
+      traderSelected = on;
+      trader?.setSelected(on);
+    },
     pickHover(clientX: number, clientY: number): boolean {
       if (!villagers && !structures) return false;
       const rect = canvas.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return false;
       ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
-      // Same precedence as the click chain in main.ts: a villager wins over a structure.
-      return villagers?.pick(raycaster) != null || structures?.pick(raycaster) != null;
+      // Same precedence as the click chain in main.ts: a villager wins over the trader, which wins
+      // over a structure. Short-circuits in that order, so at most two raycasts ever run.
+      return villagers?.pick(raycaster) != null || trader?.pick(raycaster) === true || structures?.pick(raycaster) != null;
     },
     projectVillager(villagerId: string): { x: number; y: number } | null {
       if (!villagers || !villagers.project(villagerId, camera, scratch)) return null;
@@ -256,6 +285,8 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       ambientLayer = null;
       structures?.dispose();
       structures = null;
+      trader?.dispose();
+      trader = null;
       canvas.removeEventListener('pointerdown', cancelFocus);
       controls.dispose();
       disposeScene(scene);

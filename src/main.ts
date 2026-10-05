@@ -1,7 +1,7 @@
 import './styles/tokens.css';
 import './styles/ui.css';
 import type { GameState } from './sim';
-import { assignTask, buildStructure, createInitialState, tick } from './sim';
+import { assignTask, buildStructure, createInitialState, tick, trade } from './sim';
 import { initRender } from './render';
 import { initAudio } from './audio';
 import { initUI } from './ui';
@@ -41,6 +41,9 @@ const ui = initUI(uiRoot, {
   onSelect: (villagerId) => {
     render.setSelected(villagerId);
     render.setSelectedStructure(null);
+    // T4: same mutual exclusivity — a panel-driven villager pick is a trader deselection, so the
+    // trader's ring must not linger under a card that is no longer open.
+    render.setTraderSelected(false);
     // G5: a panel-driven pick eases the camera too; dismissals (Escape / outside click) arrive
     // here as null and cancel any running ease.
     render.focusVillager(villagerId);
@@ -48,6 +51,12 @@ const ui = initUI(uiRoot, {
   // B7: spend resources on a ghost. The sim refuses unknown / already-built / unaffordable.
   build: (structureId) => {
     buildStructure(state, structureId);
+  },
+  // T4: buy from the visiting trader. The sim owns the stock, the rates and every refusal (away,
+  // out of stock, unaffordable) and emits the `trade` event, which the audio layer turns into the
+  // clink; the UI only repaints from the state on the next frame.
+  trade: (kind) => {
+    trade(state, kind);
   },
   // B7: two-step reset. Wipe the save, then reload so every layer boots from scratch.
   resetVillage: () => {
@@ -111,19 +120,30 @@ canvas.addEventListener('pointerup', (ev) => {
   if (wasDrag) return;
   // B7 pick order: a villager wins over a structure under the same pixel (they overlap in the
   // ring), and empty ground clears both. Exactly one of the two ids is ever non-null.
+  // T4 (batch 7) adds the trader between them: villager → trader → structure → ground. A trader
+  // hit is a boolean rather than an id (there is only ever one), and it excludes the structure for
+  // the same reason the villager does.
   const villagerId = render.pickVillager(ev.clientX, ev.clientY);
-  const structureId = villagerId ? null : render.pickStructure(ev.clientX, ev.clientY);
+  const traderPicked = villagerId ? false : render.pickTrader(ev.clientX, ev.clientY);
+  const structureId = villagerId || traderPicked ? null : render.pickStructure(ev.clientX, ev.clientY);
   // B2: the two world cues are set from the same pair of ids the UI is given, in the same order,
   // so the ring under a villager and the ring under a structure can never both be lit, and a
   // ground click clears both. `pickVillager`/`pickStructure` are called once each, exactly as
   // before — this only adds the second setter.
   render.setSelected(villagerId);
   render.setSelectedStructure(structureId);
+  // T4: the trader's ring follows the same one-truth rule — selecting a villager or a structure
+  // clears it, and empty ground clears it too.
+  render.setTraderSelected(traderPicked);
   // G5: a world pick eases the camera toward the villager; empty ground or a structure arrives as
   // null and cancels the ease. A drag never gets here — it already cancelled on pointerdown.
   render.focusVillager(villagerId);
   ui.select(villagerId);
   ui.selectStructure(structureId);
+  // T4: the popover's trader face. Only a trader hit opens it — every other pick above arrives as
+  // null and closes the popover on its way through, so the three faces stay mutually exclusive
+  // without a second "close the trader" call here.
+  if (traderPicked) ui.selectTrader();
 });
 
 // Containment (M12): a throw inside one layer must not silently freeze the world. The first

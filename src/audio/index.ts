@@ -58,9 +58,11 @@ export function initAudio(): AudioHandle {
     chop: -10, gather: -10, 'rest-done': -10,
     'fuel-add': -10, 'meal-cooked': -10, eat: -10, built: -10, garden: -10,
     'favor-start': -10, 'favor-done': -10,
+    // Batch 7: the trader's two cues get the same ~400 ms per-type cooldown as everything else.
+    'visitor-arrive': -10, trade: -10,
   };
 
-  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done';
+  type SfxKind = 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'trade';
 
   /** One enveloped oscillator voice with optional pitch glide and random-safe pan. */
   function voice(at: number, from: number, to: number, dur: number, peak: number, pan: number, type: OscillatorType): void {
@@ -181,6 +183,8 @@ export function initAudio(): AudioHandle {
       case 'meal-cooked': mealBlip(advanceMealStreak(now)); break;
       case 'eat': munch(); break;
       case 'built': builtSfx(); break;
+      case 'visitor-arrive': cartBell(); break;
+      case 'trade': tradeClink(); break;
     }
   }
 
@@ -263,6 +267,31 @@ export function initAudio(): AudioHandle {
     if (!ctx) return;
     knock(); // wooden knock, with its ±8 % variation
     voice(ctx.currentTime + 0.13, 880, 880, 0.35, 0.05, 0.15, 'sine'); // small chime
+  }
+
+  /**
+   * Batch 7: the trader arrives — a soft two-note cart bell. G5 → C6 (784 → 1046.5 Hz) keeps it
+   * clear of `favor-done` (523/784) and `rest-done` (660/880), and the quiet octave partial is what
+   * makes it read as metal rather than as another chime. Quieter than `built`, which outranks it.
+   */
+  function cartBell(): void {
+    if (!ctx) return;
+    const at = ctx.currentTime + 0.01;
+    voice(at, 783.99, 783.99, 0.6, 0.05, -0.18, 'sine'); // G5, the strike
+    voice(at, 1567.98, 1567.98, 0.45, 0.018, -0.18, 'sine'); // G6 partial: the metal in it
+    voice(at + 0.19, 1046.5, 1046.5, 0.7, 0.04, 0.18, 'sine'); // C6, the settle
+  }
+
+  /**
+   * Batch 7: a trade lands — one tiny clink, bright and short. Both the berry and the spice trade
+   * share it (no per-kind variant: the popover already says which happened), so the cooldown is
+   * also what keeps three trades in one tick from stacking three clinks.
+   */
+  function tradeClink(): void {
+    if (!ctx) return;
+    const at = ctx.currentTime + 0.01;
+    voice(at, 2637, 2349, 0.13, 0.03, 0.1, 'sine'); // a falling metal ping, tiny
+    voice(at + 0.05, 3136, 3136, 0.09, 0.014, -0.1, 'sine'); // its sparkle, quieter still
   }
 
   /** One fire-crackle grain: short slice of the shared noise buffer through a bandpass
@@ -384,20 +413,27 @@ export function initAudio(): AudioHandle {
         if (rank > best) { best = rank; pick = kind; }
       };
       for (const ev of state.events) {
-        // Rarest first; garden sits just above the bush gather it resembles, and the F4 favor
-        // cues slot between built and eat. Existing relative order is unchanged.
+        // Rarest first; garden sits just above the bush gather it resembles, the F4 favor cues
+        // slot between built and eat, and batch 7 adds the arrival bell and the trade clink without
+        // moving any existing cue relative to another. Batch 7's table (DESIGN §3 / spec Part 4):
+        // built 12 > favor-done 11 > meal-cooked 10 > rest-done 9 > visitor-arrive 8 > favor-start
+        // 7 > trade 6 > eat 5 > fuel-add 4 > garden 3 > gather 2 > chop 1.
         switch (ev.type) {
-          case 'built': consider('built', 10); break;
-          case 'favor-done': consider('favor-done', 9); break;
-          case 'meal-cooked': consider('meal-cooked', 8); break;
-          case 'rest-done': consider('rest-done', 7); break;
-          case 'favor-start': consider('favor-start', 6); break;
+          case 'built': consider('built', 12); break;
+          case 'favor-done': consider('favor-done', 11); break;
+          case 'meal-cooked': consider('meal-cooked', 10); break;
+          case 'rest-done': consider('rest-done', 9); break;
+          // Batch 7: an arrival is a rare, orienting cue, so it outranks the favor prompt and the
+          // trade clink but sits below the cooking/resting housekeeping cues above it.
+          case 'visitor-arrive': consider('visitor-arrive', 8); break;
+          case 'favor-start': consider('favor-start', 7); break;
+          case 'trade': consider('trade', 6); break;
           case 'eat': consider('eat', 5); break;
           case 'fuel-add': consider('fuel-add', 4); break;
           case 'garden': consider('garden', 3); break;
           case 'gather': consider('gather', 2); break;
           case 'chop': consider('chop', 1); break;
-          default: break; // 'arrived': silent
+          default: break; // 'arrived', 'visitor-leave': silent — the bell marks the arrival only
         }
       }
       if (pick !== null) playSfx(pick, ctx.currentTime);
