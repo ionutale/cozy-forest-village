@@ -3,12 +3,13 @@
 // layers may import; internal modules are implementation detail.
 
 export type {
-  Fire, GameState, Pot, ResourceNode, SimEvent, Structure, StructureKind,
-  TaskId, Vec2, Villager, VillagerState,
+  FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
+  SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState,
 } from './types';
 
 import type { GameState, StructureKind, TaskId, Vec2, Villager } from './types';
 import { mulberry32 } from './rng';
+import { createFavors, tickFavors } from './favors';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
 import {
@@ -33,6 +34,16 @@ export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berr
  */
 export { COOK_BERRIES, COOK_WOOD, GARDEN_PERIOD_MS } from './tasks';
 
+/**
+ * Favor chains (batch 4): the four binding constants, the state factory, and
+ * the chain-content function are on the public surface (DESIGN.md §3
+ * read-only-imports list, exactly like STRUCTURE_COST); `favors.ts`'s
+ * offering/completion internals stay implementation detail.
+ */
+export {
+  CHAIN_LENGTH, FIRST_OFFER_MS, MAX_ACTIVE_FAVORS, NEXT_OFFER_GAP_MS, createFavors, favorWantFor,
+} from './favors';
+
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
 const WOODPILE_ANGLE = Math.PI / 2; // 90°, r = 2.6 (DESIGN.md §3.2)
@@ -40,11 +51,14 @@ const WOODPILE_RADIUS = 2.6;
 
 export function createInitialState(seed = 1): GameState {
   const rnd = mulberry32(seed);
+  // Roster extraction order is binding: makeVillagers consumes the stream
+  // first, then generateWorld — keep that call order (determinism, §3.1).
+  const villagers = makeVillagers(rnd);
   return {
     tick: 0,
     seed,
     resources: { wood: 0, berries: 0 },
-    villagers: makeVillagers(rnd),
+    villagers,
     nodes: generateWorld(rnd),
     structures: [
       {
@@ -71,6 +85,7 @@ export function createInitialState(seed = 1): GameState {
     gardenMs: 0,
     events: [],
     pendingEvents: [],
+    favors: createFavors(villagers.length),
   };
 }
 
@@ -178,6 +193,9 @@ export function tick(state: GameState, dtMs: number): void {
         break;
     }
   }
+  // Favor chains (DESIGN.md §3.2) run last, after every system has pushed its
+  // events, so this tick's events and warm-fire time are all visible.
+  tickFavors(state, dtMs);
 }
 
 /** Resolves a target id against nodes OR structures (DESIGN.md §3.2). */
