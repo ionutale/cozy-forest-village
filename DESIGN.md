@@ -124,6 +124,8 @@ export interface RenderHandle {
   pickHover(clientX: number, clientY: number): boolean;
   /** B2: ground ring around the selected structure's footprint (ghost or built); null clears it. */
   setSelectedStructure(structureId: string | null): void;
+  /** G5: gently ease the camera target toward a villager; null cancels any running ease. */
+  focusVillager(villagerId: string | null): void;
 }
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
@@ -230,7 +232,9 @@ factories from
   after **120000 ms** of play and offers are separated by ≥ **90000 ms** (re-armed per offer,
   re-enforced after each completion). Completion is event-driven (`eat`/`gather`/`chop`/`build`) or
   accumulated `fuel ≥ 33` time (**120000 ms** for the fire favor); a completion advances the chain,
-  emits `favor-done` and enforces the 90000 ms gap. Favors never expire. Offering and requester
+  emits `favor-done` and enforces the 90000 ms gap. Favors never expire; completing step 3 **loops the chain back to step 0** (villagers never
+  permanently retire — the same gap re-paces each loop; batch-4 saves with a stored
+  `step === CHAIN_LENGTH` normalize to 0 on the next offer pass). Offering and requester
   selection are deterministic pure derives from `seed` (no stored RNG state). Chain content: step 1
   `{eat, self, 1}`; step 2 even index `{gather, 6}` / odd `{chop, 4}`; step 3 `index % 3` →
   `{eat, any, 3}` / `{build, 1}` / `{fire, 120000}`. The "delighted!" hint window after a completion

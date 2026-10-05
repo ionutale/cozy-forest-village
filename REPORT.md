@@ -66,6 +66,11 @@ the user re-instructs otherwise.
 | F4 | Batch-4: favor audio + pooled hearts | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · live wiring ✅ · audible = human | 4.5/5 |
 | F-review | Batch-4 independent review | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 0 Critical · 1 Important · 8 Minor — all adjudicated real | 5/5 |
 | F-fix | Review fix round (M1–M8 + DESIGN I1) | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` ×3 parallel + orchestrator docs | 1 | 149/149 ✅ · post-fix browser sanity ✅ | 4.5/5 |
+| G1 | Batch-5: structure-card signature test | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · mutation-proved the guarantee | 4.5/5 |
+| G2 | Batch-5: per-villager phrasing | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · live: variants + "beams with joy!" ✅ | 4.5/5 |
+| G3 | Batch-5: completion heart pulse | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · live: pulse class caught ✅ | 4.5/5 |
+| G4 | Batch-5: recurring favors + legacy heal | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 + 1 micro-round | 180/180 ✅ · live: step 3 → 0 heal + eligible ✅ | 4.5/5 |
+| G5 | Batch-5: camera focus on selection | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · live: eased + cancel drift 0 ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -105,8 +110,11 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: the optional structure-card signature test WD1 proved and deleted, vite chunk warning
-(cosmetic). **Batch-4 favor chains (F1–F4) shipped 2026-10-05** — see the log.
+Remaining: the optional structure-card signature test is now **done (G1)**. Next candidates: huts →
+new villagers · bond levels on cards · day/night cycle · save-migration harness · trader visitors.
+Known limitations: clicking an already-selected card does not restart camera focus (UI
+same-selection no-op); the heart-pulse duration lives in both `HEART_PULSE_MS` and CSS
+(comment-linked); vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -146,6 +154,22 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-5 Wave G complete — 5 parallel tasks + 1 micro-round (`opencode-go/deepseek-v4.1-flash#max`)
+- **G1** signature test: 23 tests incl. a mutation check — the guarantee fails the suite if the
+  signature ever falls back to a hand-listed subset. 4.5/5.
+- **G2** phrasing: a stable name-keyed FNV-1a "voice" picks 1-of-3 warm variants per want and for
+  the delight line; slot 0 is always the batch-4 phrase (golden assertions pin it). Live:
+  "a cozy meal by the fire" / "beams with joy!". 4.5/5.
+- **G3** heart pulse: transition-only, 2×300 ms scale pulse, reduced-motion respected, re-offer
+  cancels cleanly. Live: pulse class observed at completion. 4.5/5.
+- **G4** recurring: chains loop back to step 0 with the same cadence; a micro-round added the legacy
+  heal for batch-4 `step: 3` records (wrap at the offer pass, ahead of the max-2 gate). Live:
+  `step 3 → 0` and immediately eligible. 4.5/5.
+- **G5** camera focus: `focusVillager` eases the orbit target at 3.5/s by translating camera+target
+  (orientation untouched), clamped r ≤ 8, 0.4 u dead-zone, `pointerdown` cancels, dispose-safe.
+  Live: eased 15 px (the target was already near centre), cancel drift **0**. 4.5/5.
+- Gates **180/180** (10 files) · console clean (synthetic-pointer artifact only) · `WG-batch5.png`.
 
 ### 2026-10-05 — Batch-4 favor wave — 4 parallel tasks + 1 micro-round (`opencode-go/deepseek-v4.1-flash#max`, user instruction)
 - Spec → plan → wave: DESIGN contracts amended before dispatch (state, events, 8 constants +
