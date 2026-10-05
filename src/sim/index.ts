@@ -160,7 +160,13 @@ export function tick(state: GameState, dtMs: number): void {
   state.events = state.pendingEvents.slice();
   state.pendingEvents.length = 0;
   if (!Number.isFinite(dtMs)) dtMs = 0; // NaN / ±Infinity: counters advance, nothing else
-  if (!(dtMs > 0)) return; // dtMs = 0 (or was non-finite): no simulation movement
+  if (!(dtMs > 0)) {
+    // A zero-dt tick still hands this tick's seeded events (e.g. a `built`
+    // queued by buildStructure) to the favor consumer before returning;
+    // tickFavors clamps dt internally, so no warm-fire time is added.
+    tickFavors(state, 0);
+    return; // dtMs = 0 (or was non-finite): no simulation movement
+  }
   // Fire decay (DESIGN.md §3.2): 0.22/s, floor 0 — embers, never a failure state.
   state.fire.fuel = Math.max(0, state.fire.fuel - FIRE_DECAY_PER_MS * dtMs);
   // Garden (DESIGN.md §3.2): while built, +1 berry every 30000 ms.

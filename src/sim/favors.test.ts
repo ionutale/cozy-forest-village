@@ -49,6 +49,63 @@ function eatEvents(state: GameState, count: number, villagerIndex: number): SimE
   );
 }
 
+/**
+ * Completes the open favor of `villagerId` with crafted input matching its
+ * want, so tests can drive offer → complete → offer cycles deterministically.
+ */
+function completeActiveFavor(state: GameState, villagerId: string | undefined): void {
+  if (!villagerId) throw new Error('favor-start without a requester id');
+  const index = state.villagers.findIndex((v) => v.id === villagerId);
+  const want = favorWantFor(index, state.favors.byVillager[index]!.step);
+  if (!want) throw new Error('open favor has no chain content');
+  state.events = [];
+  if (want.kind === 'fire') {
+    state.fire.fuel = FIRE_STEADY;
+    tickFavors(state, want.ms);
+  } else {
+    if (want.kind === 'build') {
+      state.events = [{ type: 'built', structureId: 'pot' }];
+    } else if (want.kind === 'eat') {
+      // eat/self (step 0) counts only the requester; eat/any counts anyone.
+      const eater = want.who === 'self' ? index : (index + 1) % state.villagers.length;
+      const eaterId = state.villagers[eater]!.id;
+      state.events = Array.from(
+        { length: want.count },
+        (): SimEvent => ({ type: 'eat', villagerId: eaterId }),
+      );
+    } else {
+      const kind = want.kind; // 'gather' | 'chop'
+      state.events = Array.from(
+        { length: want.count },
+        (): SimEvent => ({ type: kind, villagerId }),
+      );
+    }
+    tickFavors(state, 0);
+  }
+  if (state.favors.byVillager[index]!.active) throw new Error('favor did not complete');
+}
+
+/**
+ * Drives offer → complete → offer cycles from a fresh state and returns each
+ * offer's requester id, in order. Cadence runs through real `tick()` calls;
+ * every open favor is then completed deterministically with crafted input.
+ */
+function requesterSequence(seed: number, offers: number): Array<string | undefined> {
+  const state = createInitialState(seed);
+  const sequence: Array<string | undefined> = [];
+  for (let n = 0; n < offers; n += 1) {
+    let start: SimEvent | undefined;
+    for (let i = 0; i < 1000 && !start; i += 1) {
+      tick(state, 1000);
+      start = state.events.find((e) => e.type === 'favor-start');
+    }
+    if (!start) throw new Error(`no favor offered within 1000 ticks (offer ${n + 1})`);
+    sequence.push(start.villagerId);
+    completeActiveFavor(state, start.villagerId);
+  }
+  return sequence;
+}
+
 describe('favor state & chain content', () => {
   it('createFavors starts every villager fresh with the first offer 120 s out', () => {
     const favors = createFavors(8);
@@ -106,6 +163,16 @@ describe('offering cadence', () => {
     const c = createInitialState(2);
     runCollect(c, FIRST_OFFER_MS, 1000);
     expect(startIds(c.events)[0]).not.toBe(idA);
+  });
+
+  it('pins the requester sequence across several offers from identically seeded states', () => {
+    const a = requesterSequence(1, 3);
+    const b = requesterSequence(1, 3);
+    expect(a).toHaveLength(3);
+    for (const id of a) expect(id).toBeDefined();
+    // Same seed, same offer → complete → offer history: identical requesters,
+    // including the tie between completedSteps and activeCount in `worth`.
+    expect(a).toEqual(b);
   });
 
   it('never exceeds two active favors; the countdown holds at 0 while both are open', () => {
@@ -239,6 +306,15 @@ describe('completion', () => {
     openFavor(state, 1, 2); // v1 → { build, 1 }
     state.events = [{ type: 'built', structureId: 'pot' }];
     tickFavors(state, 16);
+    expect(state.favors.byVillager[1]).toEqual({ step: 3, active: false, progress: 0 });
+    expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
+  });
+
+  it('a zero-dt tick still hands its queued events to the favor consumer (M2)', () => {
+    const state = createInitialState();
+    openFavor(state, 1, 2); // v1 → { build, 1 }
+    state.pendingEvents.push({ type: 'built', structureId: 'pot' });
+    tick(state, 0); // no movement, but the queued `built` must still count
     expect(state.favors.byVillager[1]).toEqual({ step: 3, active: false, progress: 0 });
     expect(state.events.filter((e) => e.type === 'favor-done')).toHaveLength(1);
   });

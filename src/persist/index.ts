@@ -3,7 +3,7 @@
 // guarantee of the sim, so JSON.stringify/parse round-trips it losslessly.
 // Every entry point is defensive: persist must never throw into the frame loop.
 
-import { createFavors } from '../sim';
+import { CHAIN_LENGTH, createFavors } from '../sim';
 import type { FavorsState, GameState } from '../sim';
 
 export const STORAGE_KEY = 'cozy-forest-village.save';
@@ -56,7 +56,8 @@ function isPlausibleV1State(value: unknown): value is V1GameState {
 
 /**
  * Favor-shape check (schema v2, DESIGN §3 persist): one progress record per
- * villager with a boolean `active` and finite numbers, plus a finite
+ * villager with a boolean `active`, an integer `step` within `[0,
+ * CHAIN_LENGTH]`, a non-negative finite `progress`, plus a finite
  * `nextOfferMs`. Wrong shape → the save is rejected → fresh game.
  */
 function isPlausibleFavors(value: unknown, villagerCount: number): value is FavorsState {
@@ -67,7 +68,12 @@ function isPlausibleFavors(value: unknown, villagerCount: number): value is Favo
   for (const progress of byVillager) {
     if (!isRecord(progress)) return false;
     if (typeof progress.active !== 'boolean') return false;
-    if (!Number.isFinite(progress.step) || !Number.isFinite(progress.progress)) return false;
+    const step = progress.step;
+    if (typeof step !== 'number' || !Number.isInteger(step) || step < 0 || step > CHAIN_LENGTH) {
+      return false;
+    }
+    const count = progress.progress;
+    if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return false;
   }
   return true;
 }

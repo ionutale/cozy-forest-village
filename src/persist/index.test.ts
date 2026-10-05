@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEY, VERSION, clearSave, loadGame, saveGame, startAutosave } from './index';
-import { FIRST_OFFER_MS, createInitialState } from '../sim';
+import { CHAIN_LENGTH, FIRST_OFFER_MS, createInitialState } from '../sim';
 
 /** Minimal in-memory Storage fake matching the DOM Storage interface. */
 function makeStorageFake(): Storage {
@@ -165,6 +165,27 @@ describe('persist', () => {
       (state.favors as unknown as Record<string, unknown>).byVillager = [42, 42, 42];
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
       expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null for a non-integer or out-of-range step, and negative progress', () => {
+      const storage = makeStorageFake();
+      for (const step of [1.5, -1, CHAIN_LENGTH + 1]) {
+        const state = createInitialState();
+        state.favors.byVillager[0]!.step = step;
+        storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+        expect(loadGame(storage)).toBeNull();
+      }
+
+      const negative = createInitialState();
+      negative.favors.byVillager[0]!.progress = -1;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: negative }));
+      expect(loadGame(storage)).toBeNull();
+
+      // CHAIN_LENGTH itself is legal: a retired villager round-trips.
+      const retired = createInitialState();
+      retired.favors.byVillager[0]!.step = CHAIN_LENGTH;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: retired }));
+      expect(loadGame(storage)).not.toBeNull();
     });
   });
 

@@ -136,13 +136,15 @@ export function tickFavors(state: GameState, dtMs: number): void {
       progress.progress += gained;
       target = want.count;
     }
+    const villager = state.villagers[i];
     if (progress.progress >= target) {
       progress.active = false;
       progress.step += 1;
       progress.progress = 0;
       // Breathing room after every completion (spec §1.4).
       favors.nextOfferMs = Math.max(favors.nextOfferMs, NEXT_OFFER_GAP_MS);
-      state.events.push({ type: 'favor-done', villagerId: state.villagers[i]?.id });
+      // Mirror favor-start's roster guard: no id means no renderable event.
+      if (villager) state.events.push({ type: 'favor-done', villagerId: villager.id });
     }
   }
 }
