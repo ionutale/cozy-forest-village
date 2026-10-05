@@ -71,6 +71,10 @@ the user re-instructs otherwise.
 | G3 | Batch-5: completion heart pulse | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · live: pulse class caught ✅ | 4.5/5 |
 | G4 | Batch-5: recurring favors + legacy heal | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 + 1 micro-round | 180/180 ✅ · live: step 3 → 0 heal + eligible ✅ | 4.5/5 |
 | G5 | Batch-5: camera focus on selection | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 180/180 ✅ · live: eased + cancel drift 0 ✅ | 4.5/5 |
+| H1 | Batch-6: huts sim (arrivals, cast, `'arriving'`) | ✅ complete | `opencode/muse-spark-1.3-contributor-free#xhigh` | 1 | 209/209 ✅ · 9 tests · walk-in trunk 0.620 / slot 0.0000 ✅ | 5/5 |
+| H2 | Batch-6: persist v3 + chained migrations | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 209/209 ✅ · 11 tests · live reload mid-walk resumed ✅ | 4.5/5 |
+| H3 | Batch-6: card reconcile + scroll + "Arriving…" | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (fixture) | 209/209 ✅ · 8 tests · live scroll 360/544 @12 ✅ | 4.5/5 |
+| H4 | Batch-6: hut model + ghost + arriving gait | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (gait) | 209/209 ✅ · 1 call/hut ✅ · live ✓ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -110,10 +114,10 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: the optional structure-card signature test is now **done (G1)**. Next candidates: huts →
-new villagers · bond levels on cards · day/night cycle · save-migration harness · trader visitors.
-Known limitations: clicking an already-selected card does not restart camera focus (UI
-same-selection no-op); the heart-pulse duration lives in both `HEART_PULSE_MS` and CSS
+Remaining: **huts → newcomers shipped (H1–H4)**; the **traders → spices** spec + plan are ready and wait
+their turn (schema v3 → v4 ordering). Next candidates: bond levels on cards · day/night cycle ·
+save-migration harness. Known limitations: clicking an already-selected card does not restart camera
+focus (UI same-selection no-op); the heart-pulse duration lives in both `HEART_PULSE_MS` and CSS
 (comment-linked); vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
@@ -154,6 +158,29 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-6 (huts → newcomers) wave complete — 4 parallel tasks + 2 micro-rounds (free models)
+- **H1 sim** (5/5): hut kind/cost, the arrivals queue with the frozen
+  `castIndex = (villagers.length − 8) + arrivals.length` formula, `'arriving'` walker (trunk 0.620 /
+  slot 0.0000 measured), assignment refusal, favor-record lockstep, cap guard — 9 tests.
+- **H2 persist** (4.5/5): schema **v3** + chained v1→v2→v3; arrivals validation; post-migration
+  states deliberately not re-validated (historical fixture) — documented.
+- **H3 UI** (4.5/5): dynamic card reconcile (append-only tail), panel scroll (360 px cap; 8 cards
+  exactly fit, the 9th engages the scroll — live-measured 360/406/544), "Arriving…" label seeded on
+  the first painted frame, tasks disabled while arriving. Fixture micro-round H3b cleared the
+  last `tsc` blocker from a prior wave (one line, `arrivals: []`).
+- **H4 render** (4.5/5): low-poly cabin (94 verts / 48 tris, 1 call built / 1 ghost) through the
+  existing merge path; `selectionCue.ts` footprint key blessed (`hut: 0.66` — a total Record);
+  micro-round H4b fixed the `'arriving'` pose to stride (shares the walking branch).
+- **Live pass — new harness**: chrome-devtools MCP dropped out of the callable toolset mid-wave;
+  live validation moved to a **Node Playwright** script (reused `@playwright/test` from an existing
+  install; script kept outside the repo). All four stages green: scheduled arrival at 90 000 ms →
+  v9 **Lily** walks the south edge with the "Arriving…" card and disabled tasks → settles at hut-1 →
+  reload mid-walk resumed the walk (pos −0.34,−11.03 → −0.75,−9.85) → 12 villagers = Lily, Rowan,
+  Sage, Wren in completion order · scroll 360/544 · favors aligned · console clean. Evidence:
+  `docs/validation/WH-hut-walkin.png`, `WH-village12.png`.
+- Environment notes: Python Playwright was installed then removed the same day; the
+  `webapp-testing` skill (Python-flavored) was deleted from `~/.agents/skills` at the user's request.
 
 ### 2026-10-05 — Batch-5 Wave G complete — 5 parallel tasks + 1 micro-round (`opencode-go/deepseek-v4.1-flash#max`)
 - **G1** signature test: 23 tests incl. a mutation check — the guarantee fails the suite if the
