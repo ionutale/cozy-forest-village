@@ -41,7 +41,7 @@ describe('createInitialState', () => {
 
     expect(a.tick).toBe(0);
     expect(a.seed).toBe(1);
-    expect(a.resources).toEqual({ wood: 0, berries: 0 });
+    expect(a.resources).toEqual({ wood: 0, berries: 0, spices: 0 });
     expect(a.events).toEqual([]);
     expect(a.villagers).toHaveLength(8);
     expect(a.villagers.map((v) => v.id)).toEqual(['v1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8']);

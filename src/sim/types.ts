@@ -53,9 +53,13 @@ export interface SimEvent {
   // B9-wave-B garden cadence (one-line additive change; see B4-report.md): 'garden'
   // fires per berry yield so the player hears it. Matches no existing consumer.
   // Batch 4: 'favor-start' / 'favor-done' carry the requester's villagerId.
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done';
+  // Batch 7: 'visitor-arrive' / 'visitor-leave' mark trader visits; 'trade'
+  // carries tradeKind; 'eat' may carry hearty: true.
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade';
   villagerId?: string;
   structureId?: string;
+  tradeKind?: 'berries' | 'spice';
+  hearty?: boolean;
 }
 
 // Batch 4: villager favor chains (DESIGN.md §3.2 “Favor chains”; spec
@@ -88,10 +92,20 @@ export interface Arrival {
   castIndex: number; // 0..3, frozen at schedule time
 }
 
+// Batch 7: trader visits (DESIGN.md §3.2 “Trader visits”; spec
+// docs/superpowers/specs/2026-10-05-traders-spices-design.md Part 1).
+
+export interface Visitor {
+  phase: 'away' | 'visiting'; // one visitor at a time; the sim never tracks position
+  inMs: number; // away: until arrival · visiting: until departure
+  visitMs: number; // elapsed in the current visit (0 while away)
+  tradesLeft: number; // remaining stock this visit (0 while away)
+}
+
 export interface GameState {
   tick: number; // increments once per tick() call
   seed: number;
-  resources: { wood: number; berries: number };
+  resources: { wood: number; berries: number; spices: number };
   villagers: Villager[];
   nodes: ResourceNode[];
   structures: Structure[];
@@ -102,4 +116,5 @@ export interface GameState {
   pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
   favors: FavorsState; // batch 4: per-villager favor chains (binding rules in DESIGN.md §3.2)
   arrivals: Arrival[]; // batch 6: pending newcomer walk-ins (binding rules in DESIGN.md §3.2)
+  visitor: Visitor; // batch 7: the trader-visit schedule (binding rules in DESIGN.md §3.2)
 }

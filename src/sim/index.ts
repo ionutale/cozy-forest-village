@@ -4,7 +4,7 @@
 
 export type {
   Arrival, FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
-  SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState,
+  SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState, Visitor,
 } from './types';
 
 import type { GameState, StructureKind, TaskId, Vec2, Villager } from './types';
@@ -15,12 +15,13 @@ import { generateWorld } from './world';
 import {
   ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
   EDGE_SPAWN, FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
-  GARDEN_PERIOD_MS, HUT_PLOTS, HUT_SETTLE_MS, LOG_FUEL, MOVE_SPEED,
-  NEWCOMER_CAST, OBSTACLE_ENDGAME_RADIUS,
+  FIRST_VISIT_MS, GARDEN_PERIOD_MS, HEARTY_FED_MS, HUT_PLOTS, HUT_SETTLE_MS, LOG_FUEL,
+  MOVE_SPEED, NEWCOMER_CAST, NEXT_VISIT_GAP_MS, OBSTACLE_ENDGAME_RADIUS,
   STRUCTURE_ARRIVAL_DISTANCE,
   STRUCTURE_COST as STRUCTURE_COST_TABLE,
   STRUCTURE_RING, STRUCTURE_RING_RADIUS, TEND_FETCH_FUEL, TASK_KIND, TASK_STRUCTURE,
-  TRUNK_CLEAR_RADIUS, VILLAGE_CAP, WORK_PERIOD_MS, nearestNode, nearestStructure,
+  TRADE_BERRY_COST, TRADE_WOOD_COST, TRADE_WOOD_YIELD, TRADES_PER_VISIT, TRUNK_CLEAR_RADIUS,
+  VILLAGE_CAP, VISIT_STAY_MS, WORK_PERIOD_MS, nearestNode, nearestStructure,
   restDuration, restSpot, structureSpot, workSpot,
 } from './tasks';
 
@@ -52,6 +53,17 @@ export {
  */
 export { HUT_PLOTS, HUT_SETTLE_MS, NEWCOMER_CAST, VILLAGE_CAP } from './tasks';
 
+/**
+ * Trader visits (batch 7): schedule and price constants on the public surface (DESIGN.md §3
+ * read-only-imports list, exactly like STRUCTURE_COST). `trade` below is the action. The prices
+ * are surfaced so the UI can name and gate the two exchanges from the same numbers the sim spends,
+ * rather than mirroring them (T3c).
+ */
+export {
+  FIRST_VISIT_MS, HEARTY_FED_MS, NEXT_VISIT_GAP_MS, TRADE_BERRY_COST, TRADE_WOOD_COST,
+  TRADE_WOOD_YIELD, TRADER_WALK_MS, TRADES_PER_VISIT, VISIT_STAY_MS,
+} from './tasks';
+
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
 const WOODPILE_ANGLE = Math.PI / 2; // 90°, r = 2.6 (DESIGN.md §3.2)
@@ -65,7 +77,7 @@ export function createInitialState(seed = 1): GameState {
   return {
     tick: 0,
     seed,
-    resources: { wood: 0, berries: 0 },
+    resources: { wood: 0, berries: 0, spices: 0 },
     villagers,
     nodes: generateWorld(rnd),
     structures: [
@@ -102,6 +114,7 @@ export function createInitialState(seed = 1): GameState {
     pendingEvents: [],
     favors: createFavors(villagers.length),
     arrivals: [],
+    visitor: { phase: 'away', inMs: FIRST_VISIT_MS, visitMs: 0, tradesLeft: 0 },
   };
 }
 
@@ -153,6 +166,30 @@ export function assignTask(state: GameState, villagerId: string, task: TaskId | 
   villager.progressMs = 0;
   villager.targetNodeId = newTargetId;
   villager.state = 'walking';
+}
+
+/**
+ * Trade with the visiting trader (DESIGN.md §3.2, batch 7): 5 wood → 4 berries
+ * (`'berries'`) or 6 berries → 1 spice (`'spice'`), max 3 per visit. Refuses
+ * (returns false, changes nothing) while away, out of stock, or unaffordable —
+ * one trade per call, so giant ticks can never double-consume. Like
+ * `buildStructure`, the event queues to `pendingEvents`: this runs out-of-tick.
+ */
+export function trade(state: GameState, kind: 'berries' | 'spice'): boolean {
+  if (state.visitor.phase !== 'visiting') return false;
+  if (state.visitor.tradesLeft <= 0) return false;
+  if (kind === 'berries') {
+    if (state.resources.wood < TRADE_WOOD_COST) return false;
+    state.resources.wood -= TRADE_WOOD_COST;
+    state.resources.berries += TRADE_WOOD_YIELD;
+  } else {
+    if (state.resources.berries < TRADE_BERRY_COST) return false;
+    state.resources.berries -= TRADE_BERRY_COST;
+    state.resources.spices += 1;
+  }
+  state.visitor.tradesLeft -= 1;
+  state.pendingEvents.push({ type: 'trade', tradeKind: kind });
+  return true;
 }
 
 /**
@@ -234,6 +271,29 @@ export function tick(state: GameState, dtMs: number): void {
       restMs: 0,
     });
     state.favors.byVillager.push({ step: 0, active: false, progress: 0 });
+  }
+  // Trader visits (DESIGN.md §3.2, batch 7): one visitor at a time. Single-shot
+  // transitions per tick — a giant dt can cross at most one boundary, so phases
+  // and events never double-fire.
+  const visitor = state.visitor;
+  if (visitor.phase === 'away') {
+    visitor.inMs = Math.max(0, visitor.inMs - dtMs);
+    if (visitor.inMs <= 0) {
+      visitor.phase = 'visiting';
+      visitor.inMs = VISIT_STAY_MS;
+      visitor.visitMs = 0;
+      visitor.tradesLeft = TRADES_PER_VISIT;
+      state.events.push({ type: 'visitor-arrive' });
+    }
+  } else {
+    visitor.visitMs += dtMs;
+    visitor.inMs = Math.max(0, visitor.inMs - dtMs);
+    if (visitor.inMs <= 0) {
+      visitor.phase = 'away';
+      visitor.inMs = NEXT_VISIT_GAP_MS;
+      visitor.visitMs = 0;
+      state.events.push({ type: 'visitor-leave' });
+    }
   }
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
@@ -475,12 +535,21 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
     } else if (villager.task === 'rest') {
       // Eat on arrival when the fire is warm, meals are available, and the
       // belly isn't already full (DESIGN.md §3.2): consume 1 meal, rest
-      // 5500 ms, become well-fed. Otherwise rest by fire state, untouched.
+      // 5500 ms, become well-fed. With spices on hand the meal is hearty:
+      // 1 spice goes too, fedMs stretches to 90 000, `eat` carries the flag.
+      // Otherwise rest by fire state, untouched.
       if (state.fire.fuel >= FIRE_STEADY && state.pot.meals > 0 && villager.fedMs < FED_FULL_BELLY_MS) {
         state.pot.meals -= 1;
-        villager.fedMs = FED_MS;
-        villager.restMs = EAT_REST_MS;
-        state.events.push({ type: 'eat', villagerId: villager.id });
+        if (state.resources.spices > 0) {
+          state.resources.spices -= 1;
+          villager.fedMs = HEARTY_FED_MS;
+          villager.restMs = EAT_REST_MS;
+          state.events.push({ type: 'eat', villagerId: villager.id, hearty: true });
+        } else {
+          villager.fedMs = FED_MS;
+          villager.restMs = EAT_REST_MS;
+          state.events.push({ type: 'eat', villagerId: villager.id });
+        }
       } else {
         villager.restMs = restDuration(state.fire);
       }

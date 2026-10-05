@@ -118,6 +118,25 @@ export const NEWCOMER_CAST: readonly { name: string; hatColor: string }[] = [
   { name: 'Wren', hatColor: '#7d6a52' },
 ];
 
+// ── Batch 7: trader visits (DESIGN.md §3.2) ───────────────────────────────
+
+/** First trader arrival, ~4 min into play. */
+export const FIRST_VISIT_MS = 240_000;
+/** How long each visit lasts. */
+export const VISIT_STAY_MS = 120_000;
+/** Away time between visits. */
+export const NEXT_VISIT_GAP_MS = 360_000;
+/** Trader walk in/out window (shared with the render layer). */
+export const TRADER_WALK_MS = 6_000;
+/** Trade stock per visit. */
+export const TRADES_PER_VISIT = 3;
+/** Fed window after a hearty (spiced) meal; normal meals give 60 000. */
+export const HEARTY_FED_MS = 90_000;
+/** Trade rates: 5 wood → 4 berries (`'berries'`), 6 berries → 1 spice (`'spice'`). */
+export const TRADE_WOOD_COST = 5;
+export const TRADE_WOOD_YIELD = 4;
+export const TRADE_BERRY_COST = 6;
+
 /** Node-targeting tasks (DESIGN.md §3.1). */
 export const TASK_KIND: Partial<Record<TaskId, ResourceNode['kind']>> = {
   chop: 'tree',
