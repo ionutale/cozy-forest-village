@@ -101,7 +101,11 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     const arriving = villager?.state === 'arriving';
     for (const btn of taskGrid.querySelectorAll<HTMLButtonElement>('.task-btn')) {
       btn.classList.toggle('active', btn.dataset.task === task);
-      if (arriving) setDisabled(btn, true);
+      // The loop owns the whole transition (review C1): it must clear the lock too, or chop /
+      // berries / rest / tend keep the `true` written during the walk-in forever — a newcomer
+      // who was clicked mid-arrival would never be assignable again. Stop and Cook refine their
+      // own gate on the two lines below.
+      setDisabled(btn, arriving);
     }
     if (arriving) return; // cook/stop gating is moot while the whole grid is disabled
     // Stop is the inverse of a task: nothing to stop while the villager already has none.
@@ -285,7 +289,10 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
 
       // H3: a newcomer's arrival grows the roster; append just their card. Existing cards are
       // never rewritten, so their transition state (fed tint, favor heart, pulse) survives.
-      if (cards.size !== state.villagers.length) appendCards(list, cards, state);
+      // Keyed on `list.children.length`, not `cards.size` (review M2): `cards` is keyed by villager
+      // id, so a save carrying two villagers sharing an id would keep `cards.size` below
+      // `villagers.length` forever and append one card per frame, without bound.
+      if (list.children.length !== state.villagers.length) appendCards(list, cards, state);
       syncCards(cards, state);
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) card.sync(state, selectedStructure(state));

@@ -627,3 +627,65 @@ describe('STRUCTURE_NAMES (H3 huts)', () => {
     expect(STRUCTURE_NAMES.feeder).toBe('Bird feeder');
   });
 });
+
+// M3 (review pin): the plan's index-8+ pin — "index 8+ flows through variants/voice/hearts
+// without special cases (H1 + H3-tests)". The H1 half is pinned in src/sim/huts.test.ts; this is
+// the H3 half. Every phrasing fixture above hard-codes the eight founders, and favorWantFor was
+// only ever called with indices 0, 1, 2 and 5 — so index 8–11 resolving a want line, a delight
+// suffix and a heart through the normal path was an inspection result, not a test result.
+describe('index 8+ — newcomers resolve through the normal path (M3)', () => {
+  // The eight founders plus the batch-6 newcomers in completion order (DESIGN §3.2): Lily · Rowan
+  // · Sage · Wren. Lily is index 8, the first walk-in.
+  const ROSTER12 = ['Maple', 'Birch', 'Fern', 'Pip', 'Hazel', 'Juniper', 'Moss', 'Clover', 'Lily', 'Rowan', 'Sage', 'Wren'];
+  const HAT = ['#e3b7c4', '#b03a3a', '#a8bd86', '#7d6a52'];
+
+  /** A full 12-villager village with an active favor on exactly the newcomer at `activeAt`. */
+  function village12(activeAt: number): GameState {
+    return state({
+      villagers: ROSTER12.map((name, i) => villager(`v${i + 1}`, { name, hatColor: HAT[i % HAT.length] ?? '#000000' })),
+      favors: favors(
+        ROSTER12.map((_, i) => (i === activeAt ? { step: 1, active: true, progress: 2 } : { step: 0, active: false, progress: 0 })),
+      ),
+    });
+  }
+
+  it('resolves the popover Favor: line at index 8, with no undefined or NaN leaking through', () => {
+    const line = favorPopoverLine(village12(8), 8);
+    expect(line).not.toBeNull();
+    expect(line).not.toBe('');
+    expect(line).toMatch(/^Favor: /);
+    // The failure mode this pins: a name or count read past the end of a shorter fixture array
+    // interpolating "undefined", or an uninitialised progress rendering as "NaN".
+    expect(line).not.toMatch(/undefined|NaN/);
+  });
+
+  it('voices index 8 through the name read from that slot, and gives her a delight suffix', () => {
+    // The name does not appear in the line — it selects the variant (`favorText` → `voiceIndex`),
+    // so the honest pin is the whole composed chain: want → voice-by-name-at-8 → progress. A
+    // broken `state.villagers[8].name` lookup would voice with `''` and this would not match.
+    expect(favorPopoverLine(village12(8), 8)).toBe(
+      `Favor: ${favorText({ kind: 'gather', count: 6 }, 'Lily')} (2/6)`,
+    );
+    expect(typeof delightText('Lily')).toBe('string');
+    expect(delightText('Lily')).toMatch(/^Lily /);
+    expect(delightText('Lily')).not.toMatch(/undefined|NaN/);
+  });
+
+  it('resolves the chain content at index 8 with no special case: step 1 is gather, because 8 is even', () => {
+    // favorWantFor branches on villagerIndex % 2, so index 8 must land on the even arm — the same
+    // arm index 0 takes. If a newcomer ever got a special case, this is where it would show.
+    expect(favorWantFor(8, 1)).toEqual({ kind: 'gather', count: 6 });
+    expect(favorWantFor(8, 1)).toEqual(favorWantFor(0, 1));
+  });
+
+  it('resolves every newcomer index 8–11, not just Lily', () => {
+    for (let i = 8; i < ROSTER12.length; i += 1) {
+      const name = ROSTER12[i] ?? '';
+      const want = favorWantFor(i, 1);
+      expect(want).toEqual(i % 2 === 0 ? { kind: 'gather', count: 6 } : { kind: 'chop', count: 4 });
+      expect(favorPopoverLine(village12(i), i)).toBe(
+        `Favor: ${favorText(want ?? { kind: 'gather', count: 6 }, name)} ${favorProgressText(want ?? { kind: 'gather', count: 6 }, 2)}`,
+      );
+    }
+  });
+});

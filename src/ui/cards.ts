@@ -71,7 +71,11 @@ export function appendCards(
   cards: Map<string, CardParts>,
   state: GameState,
 ): number {
-  const missing = villagersNeedingCards(cards.size, state.villagers.length);
+  // `list.children.length`, not `cards.size` (review M2): the list grows by index, and `cards` is
+  // keyed by villager id. A save with a duplicated id would keep `cards.size` below
+  // `villagers.length` on every frame, so the range would never empty and the list would grow
+  // without bound. `buildCards` writes one child per villager, so the DOM is the honest count.
+  const missing = villagersNeedingCards(list.children.length, state.villagers.length);
   if (missing.length === 0) return 0;
   const html: string[] = [];
   for (const i of missing) {

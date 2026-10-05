@@ -227,3 +227,84 @@ needed. Test count is unchanged at 209: the fixture was type-level only, which i
 5. Concurrent-tree note: `src/sim/**` is mid-flight from H1 (I saw `huts.test.ts` appear and
    `types.ts`/`index.ts`/`tasks.ts` change under me during the session). My changes only read
    `'hut'` and `'arriving'`, both of which H1 has now landed.
+---
+
+## Fix round after the huts-wave review — C1, M2, M3
+
+Source: `docs/tasks/H-review-report.md`. Three findings, all in my files, all applied minimally as
+specified. No behaviour outside the fix was touched.
+
+### C1 (Critical) — the task grid never re-enabled after a walk-in
+
+`src/ui/index.ts`. The loop wrote `aria-disabled="true"` only on the arriving branch, and nothing
+ever wrote `"false"` back for `chop` / `berries` / `rest` / `tend` — so a newcomer whose card was
+clicked *during* the walk-in stayed permanently un-assignable for those four tasks (`.task-btn`
+carries `pointer-events: none` and the click handler bails on `aria-disabled === 'true'`, and
+nothing auto-assigns). The loop now owns the whole transition:
+
+```ts
+for (const btn of taskGrid.querySelectorAll<HTMLButtonElement>('.task-btn')) {
+  btn.classList.toggle('active', btn.dataset.task === task);
+  setDisabled(btn, arriving);   // was: if (arriving) setDisabled(btn, true);
+}
+```
+
+The two lines below still refine Stop and Cook on any non-arriving frame, so their final state is
+unchanged. Transition-only discipline is preserved: `setDisabled` still compares before writing, so
+a steady state writes nothing even though the loop now touches all six buttons every frame.
+
+### M2 (Minor) — reconcile keyed on an id-set size could append forever
+
+`src/ui/index.ts:295` and `src/ui/cards.ts:78`. Both the trigger and the missing-range now read the
+rendered DOM instead of `cards.size`:
+
+```ts
+if (list.children.length !== state.villagers.length) appendCards(list, cards, state);
+const missing = villagersNeedingCards(list.children.length, state.villagers.length);
+```
+
+The list grows *by index* but `cards` is keyed by villager id, so a save carrying two villagers with
+one id would keep `cards.size` under `villagers.length` on every frame — one appended card per
+frame, unbounded. `buildCards` writes one child per villager, so `list.children.length` is the honest
+count and the wedge cannot occur. The guard remains a single integer compare per frame.
+
+### M3 (Minor) — the index-8+ pin, now a test rather than an inspection
+
+`src/ui/derive.test.ts`. Added a `describe('index 8+ — newcomers resolve through the normal path')`
+block with a 12-villager fixture (the eight founders plus batch 6's Lily · Rowan · Sage · Wren in
+completion order, Lily at index 8) and four tests:
+
+- `favorPopoverLine(state, 8)` is non-null, non-empty, `Favor: `-prefixed, and contains no
+  `undefined` / `NaN`;
+- the line equals the whole composed chain — `` `Favor: ${favorText({kind:'gather',count:6}, 'Lily')} (2/6)` ``
+  — so the name read from slot 8 is provably what drives the voice;
+- `delightText('Lily')` is a string matching `/^Lily /`, no `undefined` / `NaN`;
+- `favorWantFor(8, 1)` equals `{ kind: 'gather', count: 6 }`, and equals `favorWantFor(0, 1)` — no
+  special case for a newcomer;
+- and the same assertions sweep every newcomer index 8–11, not just Lily.
+
+**One correction worth recording:** my first draft asserted the `Favor:` line *contains* `"Lily"`.
+It does not, and should not — `favorText` uses the villager name to select a voice *variant*
+(`favorText` → `voiceIndex`), never to appear in the text. The test now pins the composed chain
+instead, which is both true and a stronger check: a broken `state.villagers[8].name` lookup would
+voice with `''` and fail. The `resolves every newcomer` case also composes the progress tail from
+`favorProgressText` instead of hard-coding `(2/6)` — chop at the odd indices is `(2/4)`.
+
+### Gate
+
+| Command | Result |
+|---|---|
+| `pnpm exec tsc --noEmit` | exit 0, no output |
+| `pnpm build` | exit 0, `✓ built in 140ms` |
+| `pnpm test` | exit 0 — **11 files, 216/216** |
+
+216, not 213: the round brief said 209 baseline, and `src/ui/derive.test.ts` is 73 → 77 (+4 mine).
+The other 139 came from concurrent agents adding tests to `src/sim/huts.test.ts` and
+`src/persist/index.test.ts` since my last round — their files, not mine. Nothing else in the tree
+changed under me for this fix round.
+
+Still not browser-verified (browser use is ruled out for me), so the C1 *recovery* remains an
+inspection-plus-unit result: the write is `setDisabled(btn, arriving)` with `arriving` computed from
+the selected villager's state, but the end-to-end "click a newcomer's card mid-walk-in, then assign
+them Chop once they settle" sequence has not been exercised on a live page. That is the one check
+this fix most deserves.
