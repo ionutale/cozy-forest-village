@@ -1,11 +1,13 @@
 // World generation (DESIGN.md §3, §3.2): one campfire at the origin, then
 // 40 trees and 20 bushes scattered in an annulus r = 7.5…28 via rejection
 // sampling (min gap 2.5, 12 tries per node; the last candidate is kept if all
-// tries fail). The inner radius moved out from 6 to 7.5 so the village ring
-// (structures at r = 5.2) stays clear of trees; the radial distribution is
+// tries fail). The crowding list is seeded with the campfire and the four hut
+// plots (r = 7.6, inside the scatter field), so no trunk lands in a cabin
+// footprint or its arrival slot; the radial distribution is
 // uniform-in-radius (not squared) so the inner edge stays populated.
 
 import type { ResourceNode } from './types';
+import { HUT_PLOTS } from './tasks';
 
 const TREE_COUNT = 40;
 const BUSH_COUNT = 20;
@@ -51,8 +53,9 @@ function scatter(
 }
 
 export function generateWorld(rnd: () => number): ResourceNode[] {
-  // The campfire occupies the origin, so scatter avoids it from the start.
-  const taken: Placed[] = [{ x: 0, z: 0 }];
+  // The campfire occupies the origin and the huts their plots, so scatter
+  // avoids all of them from the start (min gap 2.5 clears pad + arrival slot).
+  const taken: Placed[] = [{ x: 0, z: 0 }, ...HUT_PLOTS.map((p) => ({ ...p.pos }))];
   return [
     { id: 'campfire', kind: 'campfire', pos: { x: 0, z: 0 } },
     ...scatter('tree', TREE_COUNT, rnd, taken),

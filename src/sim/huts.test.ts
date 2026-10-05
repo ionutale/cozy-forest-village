@@ -187,3 +187,26 @@ describe('second hut & defensive cap', () => {
     expect(state.favors.byVillager).toHaveLength(8);
   });
 });
+
+describe('hut plot clearance (H-review M1)', () => {
+  it('no trunk crowds a hut plot on any checked seed (min gap 2.5)', () => {
+    // Margin derivation: scatter rejects any node within 2.5 of a plot centre
+    // (hut plots seed the crowding list alongside the campfire). 2.5 clears the
+    // cabin pad (half-width 0.58) + the arrival slot (r = 0.9) + the trunk
+    // itself (r = 0.42) with room to spare, and keeps trunks ≥ 1.6 from hut
+    // slots — outside the 1.0 obstacle-avoidance endgame, so walk-ins never
+    // clip a trunk on the final stretch.
+    for (const seed of [1, 2, 7, 42]) {
+      const state = createInitialState(seed);
+      for (const p of HUT_PLOTS) {
+        for (const n of state.nodes) {
+          if (n.kind !== 'tree') continue;
+          expect(
+            Math.hypot(n.pos.x - p.pos.x, n.pos.z - p.pos.z),
+            `seed ${seed} ${n.id} vs ${p.id}`,
+          ).toBeGreaterThanOrEqual(2.5);
+        }
+      }
+    }
+  });
+});

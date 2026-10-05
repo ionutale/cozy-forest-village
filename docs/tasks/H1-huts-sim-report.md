@@ -70,3 +70,26 @@ followed to the letter; no DESIGN.md edits).
 | `src/sim/huts.test.ts` | **New** — 9 H1 tests |
 | `src/sim/fire.test.ts`, `src/sim/food.test.ts` | `structures` length 7→11 (+hut assertions) |
 | `docs/tasks/H1-huts-sim-report.md` | This file (new) |
+
+## Fix round — H-review M1: worldgen reserves the hut plots
+
+**Change** (`src/sim/world.ts` only, plus test + this note): `generateWorld` now seeds its
+crowding list with the campfire **and** the four hut plots —
+`[{ x: 0, z: 0 }, ...HUT_PLOTS.map((p) => ({ ...p.pos }))]` — so the existing min-gap
+rule (2.5, 12 tries) clears pad + arrival slot + endgame around every plot. The stale
+file-top comment (it still reasoned about structures at r = 5.2) now documents the hut
+reservation. No import cycle: `tasks.ts` imports `types.ts` type-only.
+
+**Why the margin holds:** 2.5 ≥ cabin pad half-width (0.58) + arrival slot (0.9) + trunk
+radius (0.42) = 1.9, and keeps trunks ≥ 1.6 from hut slots — outside the 1.0
+obstacle-avoidance endgame, so walk-ins never clip a trunk on the final stretch.
+
+**Measurement:** pre-fix min tree→hut-centre distance was 2.727 / **2.351** / **2.433** /
+**2.308** on seeds 1/2/7/42 (three already under the 2.5 rule — luck, not a rule); post-fix
+the new `huts.test.ts` plot-clearance test asserts ≥ 2.5 per hut per seed and passes.
+Tree layouts shift for all seeds (accept/reject decisions change) — full suite re-ran green,
+so no threshold test depended on the old scatter.
+
+**Verification:** `tsc` clean, `build` ✓, 216/216 green (209 baseline + this test + concurrent
+additions; two concurrent-edit failures observed mid-session in H2/H3 files re-ran green
+untouched).
