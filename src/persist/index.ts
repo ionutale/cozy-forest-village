@@ -1,13 +1,17 @@
-// Persistence (DESIGN.md §3, B3): localStorage save / load / autosave.
+// Persistence (DESIGN.md §3, B3; schema v2 favors): localStorage save / load / autosave.
 // The GameState is plain JSON-safe data (no Maps / class instances) — that is a
 // guarantee of the sim, so JSON.stringify/parse round-trips it losslessly.
 // Every entry point is defensive: persist must never throw into the frame loop.
 
-import type { GameState } from '../sim';
+import { createFavors } from '../sim';
+import type { FavorsState, GameState } from '../sim';
 
 export const STORAGE_KEY = 'cozy-forest-village.save';
-export const VERSION = 1;
+export const VERSION = 2; // v2 = v1 + favors (additive migration in loadGame)
 const AUTOSAVE_INTERVAL_MS = 3000;
+
+/** Pre-favors schema (v1): everything in GameState except the favors block. */
+type V1GameState = Omit<GameState, 'favors'>;
 
 interface SaveFile {
   version: number;
@@ -19,12 +23,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Plausible-shape check: arrays / objects with the right containers, numeric
- * fire + garden fields, a pendingEvents queue, and per-villager activity
- * fields (a save missing those would NaN the fuel or rest forever).
- * Deliberately shallow — enough to reject corrupt saves without over-rejecting.
+ * Plausible-shape check for a v1 state (pre-favors, B3): arrays / objects with
+ * the right containers, numeric fire + garden fields, a pendingEvents queue,
+ * and per-villager activity fields (a save missing those would NaN the fuel or
+ * rest forever). Deliberately shallow — enough to reject corrupt saves without
+ * over-rejecting.
  */
-function isPlausibleState(value: unknown): value is GameState {
+function isPlausibleV1State(value: unknown): value is V1GameState {
   if (!isRecord(value)) return false;
   if (
     !Array.isArray(value.villagers) ||
@@ -50,8 +55,35 @@ function isPlausibleState(value: unknown): value is GameState {
 }
 
 /**
- * Load the saved game. Accepts only version === 1 with a plausible shape; any
- * failure (missing, bad JSON, wrong version, wrong shape) → null. Never throws.
+ * Favor-shape check (schema v2, DESIGN §3 persist): one progress record per
+ * villager with a boolean `active` and finite numbers, plus a finite
+ * `nextOfferMs`. Wrong shape → the save is rejected → fresh game.
+ */
+function isPlausibleFavors(value: unknown, villagerCount: number): value is FavorsState {
+  if (!isRecord(value)) return false;
+  const byVillager = value.byVillager;
+  if (!Array.isArray(byVillager) || byVillager.length !== villagerCount) return false;
+  if (!Number.isFinite(value.nextOfferMs)) return false;
+  for (const progress of byVillager) {
+    if (!isRecord(progress)) return false;
+    if (typeof progress.active !== 'boolean') return false;
+    if (!Number.isFinite(progress.step) || !Number.isFinite(progress.progress)) return false;
+  }
+  return true;
+}
+
+/** v2 state = plausible v1 shape + a plausible favors block. */
+function isPlausibleState(value: unknown): value is GameState {
+  if (!isPlausibleV1State(value)) return false;
+  const favors = (value as V1GameState & { favors?: unknown }).favors;
+  return isPlausibleFavors(favors, value.villagers.length);
+}
+
+/**
+ * Load the saved game. v2 (current) needs the full shape; v1 migrates
+ * additively (DESIGN §3 persist): the village survives untouched and favor
+ * chains start fresh. Any failure (missing, bad JSON, unknown version, wrong
+ * shape) → null. Never throws.
  */
 export function loadGame(storage: Storage = localStorage): GameState | null {
   try {
@@ -59,10 +91,18 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!isRecord(parsed)) return null;
-    if (parsed.version !== VERSION) return null;
     if (!isRecord(parsed.state)) return null;
-    if (!isPlausibleState(parsed.state)) return null;
-    return parsed.state;
+    if (parsed.version === VERSION) {
+      if (!isPlausibleState(parsed.state)) return null;
+      return parsed.state;
+    }
+    if (parsed.version === 1) {
+      if (!isPlausibleV1State(parsed.state)) return null;
+      // Additive migration v1 → v2: fresh chains — no instant offer, every
+      // villager unprompted (createFavors sets nextOfferMs = FIRST_OFFER_MS).
+      return { ...parsed.state, favors: createFavors(parsed.state.villagers.length) };
+    }
+    return null;
   } catch {
     return null;
   }

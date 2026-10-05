@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEY, VERSION, clearSave, loadGame, saveGame, startAutosave } from './index';
-import { createInitialState } from '../sim';
+import { FIRST_OFFER_MS, createInitialState } from '../sim';
 
 /** Minimal in-memory Storage fake matching the DOM Storage interface. */
 function makeStorageFake(): Storage {
@@ -47,6 +47,124 @@ describe('persist', () => {
 
     it('returns null when nothing is stored', () => {
       expect(loadGame(makeStorageFake())).toBeNull();
+    });
+  });
+
+  describe('v2 round-trip with favors', () => {
+    it('saves as v2 and restores an active favor mid-progress plus nextOfferMs', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.favors.byVillager[0] = { step: 1, active: true, progress: 3 };
+      state.favors.nextOfferMs = 12_345;
+      saveGame(state, storage);
+      const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
+      expect(raw.version).toBe(2);
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      expect(loaded).toEqual(state);
+      // Review Focus 1: reload mid-favor keeps the same active favor, progress and countdown.
+      expect(loaded!.favors.byVillager[0]).toEqual({ step: 1, active: true, progress: 3 });
+      expect(loaded!.favors.nextOfferMs).toBe(12_345);
+    });
+  });
+
+  describe('v1 → v2 migration', () => {
+    it('loads a v1 save, keeps the village intact and starts chains fresh', () => {
+      const storage = makeStorageFake();
+      const v1State = {
+        tick: 42,
+        seed: 7,
+        resources: { wood: 5, berries: 2 },
+        villagers: [
+          {
+            id: 'villager-0',
+            name: 'Fern',
+            hatColor: '#e8b4b8',
+            task: 'chop',
+            state: 'working',
+            pos: { x: 1.5, z: -0.5 },
+            facing: 0.25,
+            targetNodeId: 'tree-0',
+            progressMs: 400,
+            fedMs: 1200,
+            carrying: false,
+            restMs: 0,
+          },
+        ],
+        nodes: [{ id: 'tree-0', kind: 'tree', pos: { x: 8, z: 0 } }],
+        structures: [],
+        fire: { fuel: 55, max: 100 },
+        pot: { meals: 2 },
+        gardenMs: 300,
+        events: [],
+        pendingEvents: [],
+      };
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1State }));
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      // The village survives untouched.
+      expect(loaded!.tick).toBe(42);
+      expect(loaded!.seed).toBe(7);
+      expect(loaded!.resources).toEqual({ wood: 5, berries: 2 });
+      expect(loaded!.villagers).toHaveLength(1);
+      expect(loaded!.villagers[0]!.task).toBe('chop');
+      expect(loaded!.villagers[0]!.progressMs).toBe(400);
+      expect(loaded!.fire.fuel).toBe(55);
+      expect(loaded!.pot.meals).toBe(2);
+      expect(loaded!.gardenMs).toBe(300);
+      // Chains start fresh: no instant offer, every villager unprompted.
+      expect(loaded!.favors.nextOfferMs).toBe(FIRST_OFFER_MS);
+      expect(loaded!.favors.byVillager).toEqual([{ step: 0, active: false, progress: 0 }]);
+    });
+
+    it('returns null when a v1 blob fails the v1 shape check', () => {
+      const storage = makeStorageFake();
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: { resources: {} } }));
+      expect(loadGame(storage)).toBeNull();
+    });
+  });
+
+  describe('v2 favors validation', () => {
+    it('returns null when a v2 save has no favors block', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      delete (state as unknown as Record<string, unknown>).favors;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+      expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null when byVillager length does not match the roster', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.favors.byVillager.push({ step: 0, active: false, progress: 0 });
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+      expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null when a favors number is non-finite', () => {
+      const storage = makeStorageFake();
+      const inf = createInitialState();
+      inf.favors.nextOfferMs = Infinity; // serializes to null → rejected
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: inf }));
+      expect(loadGame(storage)).toBeNull();
+
+      const nan = createInitialState();
+      nan.favors.byVillager[0]!.progress = NaN; // serializes to null → rejected
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: nan }));
+      expect(loadGame(storage)).toBeNull();
+
+      const str = createInitialState();
+      (str.favors as unknown as Record<string, unknown>).nextOfferMs = 'soon';
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state: str }));
+      expect(loadGame(storage)).toBeNull();
+    });
+
+    it('returns null when a byVillager entry is not a progress record', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      (state.favors as unknown as Record<string, unknown>).byVillager = [42, 42, 42];
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+      expect(loadGame(storage)).toBeNull();
     });
   });
 
