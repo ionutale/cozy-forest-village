@@ -188,6 +188,8 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
   let flameMat: THREE.MeshBasicMaterial | null = null;
   let fireLight: THREE.PointLight | null = null;
   let emberMat: THREE.PointsMaterial | null = null;
+  let warmDisc: THREE.Mesh | null = null;
+  let warmDiscMat: THREE.MeshBasicMaterial | null = null;
   let fireX = 0;
   let fireZ = 0;
   const fireCol = new THREE.Color(PALETTE.fire);
@@ -232,7 +234,15 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
     }));
     const embers = new THREE.Points(emberGeo, emberMat);
     embers.frustumCulled = false;
-    group.add(disc, ring, flame, fireLight, embers);
+    // A2 warmth disc: one soft translucent disc telegraphing "can eat here". Unit circle,
+    // scaled per-frame (zero per-frame allocations); warm fire hue, barely-there opacity.
+    warmDiscMat = track(new THREE.MeshBasicMaterial({
+      color: PALETTE.fire, transparent: true, opacity: 0.08, depthWrite: false,
+    }));
+    warmDisc = new THREE.Mesh(track(new THREE.CircleGeometry(1, 40)), warmDiscMat);
+    warmDisc.position.set(x, 0.02, z);
+    warmDisc.rotation.x = -Math.PI / 2;
+    group.add(disc, ring, flame, fireLight, embers, warmDisc);
   }
 
   return {
@@ -252,7 +262,7 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
       if (crownBase.length > 0) crowns.instanceMatrix.needsUpdate = true;
       // B4 heartbeat: flame scale/tint, warm light and ember glow all follow fuel.
       // Slow two-sine flicker (±6 %), always eased — never strobing.
-      if (flame && flameMat && fireLight && emberMat) {
+      if (flame && flameMat && fireLight && emberMat && warmDisc && warmDiscMat) {
         const { ratio } = resolveFire(fire);
         const flick = 0.6 * Math.sin(timeSec * TAU * 0.9) + 0.4 * Math.sin(timeSec * TAU * 1.7 + 1.3);
         const s = (0.25 + 0.75 * ratio) * (1 + 0.06 * flick);
@@ -265,6 +275,10 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
         flameMat.color.lerpColors(emberCol, fireCol, ratio);
         fireLight.intensity = (0.25 + 1.15 * ratio) * (1 + 0.06 * flick);
         emberMat.opacity = (0.15 + 0.75 * (1 - ratio)) * (1 + 0.1 * flick);
+        // A2: warmth breathes with the SAME flick value — radius 1.2 + 3.8·ratio,
+        // opacity 0.04 + 0.06·ratio, both ±10 %. Scale/opacity writes only.
+        warmDisc.scale.setScalar((1.2 + 3.8 * ratio) * (1 + 0.1 * flick));
+        warmDiscMat.opacity = (0.04 + 0.06 * ratio) * (1 + 0.1 * flick);
       }
     },
     dispose(): void {
