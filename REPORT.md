@@ -64,6 +64,8 @@ the user re-instructs otherwise.
 | F2 | Batch-4: save schema v2 + additive v1 migration | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · 7 new tests ✅ · live reload retains favors ✅ | 4.5/5 |
 | F3 | Batch-4: favor UI (hint priority, card heart, popover) | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 + 1 micro-round (F3b) | 139/139 ✅ · 24 new tests ✅ · live ✅ | 4.5/5 |
 | F4 | Batch-4: favor audio + pooled hearts | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` | 1 | 139/139 ✅ · live wiring ✅ · audible = human | 4.5/5 |
+| F-review | Batch-4 independent review | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 0 Critical · 1 Important · 8 Minor — all adjudicated real | 5/5 |
+| F-fix | Review fix round (M1–M8 + DESIGN I1) | ✅ complete | `opencode-go/deepseek-v4.1-flash#max` ×3 parallel + orchestrator docs | 1 | 149/149 ✅ · post-fix browser sanity ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -164,7 +166,14 @@ a 3D highlight for the selected structure.
 - Orchestrator live pass (`WF-favor-offer.png`, `WF-favor-done.png`): heart only on the requester,
   hint + popover line, completion via real eating (step→1, gap re-armed, `fedMs` set), delight
   window then fallback to the other open favor; console clean; gates **139/139**.
-- Follow-up: independent read-only review dispatched; fix round if it finds anything.
+- Follow-up: independent review (`mimo`, 0 Critical · 1 Important · 8 Minor) + full fix round
+  (all resolved; 3 parallel DeepSeek fixes + orchestrator DESIGN edits): first `favor-done` in a
+  batch wins deterministically (M1); zero-dt ticks no longer skip `tickFavors` (M2); save validation
+  range-checks `step`/`progress` (M3); `favor-done` gains the roster guard (M4); requester **sequence**
+  determinism pinned (M5); hint recompute decision extracted + edge-tested (M6); dead export removed
+  (M7); one heart burst per villager per tick on favor-forced meal ticks (M8); DESIGN §6 whitelist +
+  §3.2 `THANK_YOU_MS` + §3 persistence schema note added (I1). Post-fix gate **149/149**; browser
+  sanity clean.
 
 ### 2026-10-05 — Batch-3 Wave D complete — 3 parallel tasks (commits per task in git)
 - **WD1** UI split (`space-bunny#xhigh`): `ui/index.ts` 560→312 + `derive.ts` / `markup.ts` /

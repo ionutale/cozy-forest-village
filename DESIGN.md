@@ -233,7 +233,8 @@ factories from
   emits `favor-done` and enforces the 90000 ms gap. Favors never expire. Offering and requester
   selection are deterministic pure derives from `seed` (no stored RNG state). Chain content: step 1
   `{eat, self, 1}`; step 2 even index `{gather, 6}` / odd `{chop, 4}`; step 3 `index % 3` →
-  `{eat, any, 3}` / `{build, 1}` / `{fire, 120000}`.
+  `{eat, any, 3}` / `{build, 1}` / `{fire, 120000}`. The "delighted!" hint window after a completion
+  is UI-side only: **`THANK_YOU_MS = 6000`**.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
@@ -241,6 +242,12 @@ factories from
 
 Names: Maple, Birch, Fern, Pip, Hazel, Juniper, Moss, Clover.
 Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (in order).
+
+### Persistence (save schema)
+
+`VERSION = 2` (batch 4). v2 = v1 + `favors`; **v1 saves migrate additively on load** — the village
+survives untouched, favor chains start fresh (`nextOfferMs = FIRST_OFFER_MS`). Unknown versions or
+implausible shapes → fresh game (`loadGame` returns null; never throws).
 
 ### Testability hook (all layers)
 
@@ -299,7 +306,10 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 - No feature may add a fourth zone; the orchestrator rejects such diffs.
 - Batch 2 explicitly allows, *inside* the three zones: a Fuel pill in the HUD (with a mini bar), a 2×3
   task grid in the popover (Chop · Berries · Rest · Tend fire · Cook · Stop), structure cards in the
-  same popover (ghost → Build; built → status), and a two-step reset (⟲) in the HUD. Nothing else.
+  same popover (ghost → Build; built → status), and a two-step reset (⟲) in the HUD.
+- Batch 4 explicitly allows, *inside* the three zones: a requester heart glyph on the villager card
+  (zone 2), favor/delight text in the panel hint (zone 2), and a reserved `Favor:` line above the task
+  grid in the popover (zone 3). Nothing else.
 
 ## 7. Validation protocol (orchestrator)
 
