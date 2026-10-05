@@ -1,17 +1,25 @@
-// Persistence (DESIGN.md §3, B3; schema v2 favors): localStorage save / load / autosave.
+// Persistence (DESIGN.md §3, B3; schema v3 = favors + hut plots + arrivals): localStorage
+// save / load / autosave.
 // The GameState is plain JSON-safe data (no Maps / class instances) — that is a
 // guarantee of the sim, so JSON.stringify/parse round-trips it losslessly.
 // Every entry point is defensive: persist must never throw into the frame loop.
 
-import { CHAIN_LENGTH, createFavors } from '../sim';
+import { CHAIN_LENGTH, HUT_PLOTS, VILLAGE_CAP, createFavors } from '../sim';
 import type { FavorsState, GameState } from '../sim';
 
 export const STORAGE_KEY = 'cozy-forest-village.save';
-export const VERSION = 2; // v2 = v1 + favors (additive migration in loadGame)
+/** v3 = v2 + the four hut plots + arrivals; migrations chain v1 → v2 → v3 (DESIGN §3). */
+export const VERSION = 3;
 const AUTOSAVE_INTERVAL_MS = 3000;
+/** Roster floor (spec Part 2): the fixed eight of DESIGN §3's roster. */
+const MIN_VILLAGERS = 8;
+/** `castIndex` ceiling (spec Part 2): one row per hut plot — four newcomer cast entries. */
+const MAX_CAST_INDEX = 3;
 
-/** Pre-favors schema (v1): everything in GameState except the favors block. */
-type V1GameState = Omit<GameState, 'favors'>;
+/** Pre-favors schema (v1): everything in GameState except the favors block and arrivals. */
+type V1GameState = Omit<GameState, 'favors' | 'arrivals'>;
+/** Pre-arrivals schema (v2): v1 + the favors block; no hut plots, no arrivals. */
+type V2GameState = Omit<GameState, 'arrivals'>;
 
 interface SaveFile {
   version: number;
@@ -78,18 +86,70 @@ function isPlausibleFavors(value: unknown, villagerCount: number): value is Favo
   return true;
 }
 
-/** v2 state = plausible v1 shape + a plausible favors block. */
-function isPlausibleState(value: unknown): value is GameState {
+/** v2 state = plausible v1 shape + a plausible favors block (still no arrivals). */
+function isPlausibleV2State(value: unknown): value is V2GameState {
   if (!isPlausibleV1State(value)) return false;
   const favors = (value as V1GameState & { favors?: unknown }).favors;
   return isPlausibleFavors(favors, value.villagers.length);
 }
 
 /**
- * Load the saved game. v2 (current) needs the full shape; v1 migrates
- * additively (DESIGN §3 persist): the village survives untouched and favor
- * chains start fresh. Any failure (missing, bad JSON, unknown version, wrong
- * shape) → null. Never throws.
+ * Arrivals-shape check (schema v3, spec Part 2): an array of records with a string
+ * `structureId`, a finite `inMs ≥ 0` and an integer `castIndex` in `[0, 3]` (one row per
+ * newcomer cast slot). Wrong shape → the save is rejected → fresh game.
+ */
+function isPlausibleArrivals(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  for (const arrival of value) {
+    if (!isRecord(arrival)) return false;
+    if (typeof arrival.structureId !== 'string') return false;
+    const inMs = arrival.inMs;
+    if (typeof inMs !== 'number' || !Number.isFinite(inMs) || inMs < 0) return false;
+    const castIndex = arrival.castIndex;
+    if (
+      typeof castIndex !== 'number' ||
+      !Number.isInteger(castIndex) ||
+      castIndex < 0 ||
+      castIndex > MAX_CAST_INDEX
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** v3 state = v2 checks + the arrivals shape + the `[8, 12]` roster bound (spec Part 2). */
+function isPlausibleState(value: unknown): value is GameState {
+  if (!isPlausibleV2State(value)) return false;
+  const arrivals = (value as V2GameState & { arrivals?: unknown }).arrivals;
+  if (!isPlausibleArrivals(arrivals)) return false;
+  const roster = value.villagers.length;
+  return roster >= MIN_VILLAGERS && roster <= VILLAGE_CAP;
+}
+
+/**
+ * Additive migration v2 → v3 (DESIGN §3 persist; spec Part 2): append the four `hut-1…hut-4`
+ * plots from HUT_PLOTS — only those the save does not already have — and start with an empty
+ * arrivals queue. The roster and every existing structure are untouched, so an existing
+ * village simply gains four empty plots.
+ */
+function migrateV2toV3(state: V2GameState): GameState {
+  const have = new Set(state.structures.map((s) => s.id));
+  const huts = HUT_PLOTS.filter((plot) => !have.has(plot.id)).map((plot) => ({
+    id: plot.id,
+    kind: 'hut' as const,
+    pos: { ...plot.pos },
+    built: false,
+  }));
+  return { ...state, structures: [...state.structures, ...huts], arrivals: [] };
+}
+
+/**
+ * Load the saved game. Migrations chain additively (DESIGN §3 persist): v1 → v2 (favors) →
+ * v3 (hut plots + arrivals), each older version validated against *its own* schema before it
+ * migrates — so a v1/v2 village always survives and simply gains whatever the newer schema
+ * adds. Only a v3 blob is validated as v3. Any failure (missing, bad JSON, unknown version,
+ * wrong shape) → null. Never throws.
  */
 export function loadGame(storage: Storage = localStorage): GameState | null {
   try {
@@ -102,11 +162,19 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
       if (!isPlausibleState(parsed.state)) return null;
       return parsed.state;
     }
+    if (parsed.version === 2) {
+      if (!isPlausibleV2State(parsed.state)) return null;
+      return migrateV2toV3(parsed.state);
+    }
     if (parsed.version === 1) {
       if (!isPlausibleV1State(parsed.state)) return null;
       // Additive migration v1 → v2: fresh chains — no instant offer, every
       // villager unprompted (createFavors sets nextOfferMs = FIRST_OFFER_MS).
-      return { ...parsed.state, favors: createFavors(parsed.state.villagers.length) };
+      const v2: V2GameState = {
+        ...parsed.state,
+        favors: createFavors(parsed.state.villagers.length),
+      };
+      return migrateV2toV3(v2);
     }
     return null;
   } catch {
