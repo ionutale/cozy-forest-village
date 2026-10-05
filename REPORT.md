@@ -75,6 +75,7 @@ the user re-instructs otherwise.
 | H2 | Batch-6: persist v3 + chained migrations | ✅ complete | `opencode/mimo-v2.6-flash-free` | 1 | 209/209 ✅ · 11 tests · live reload mid-walk resumed ✅ | 4.5/5 |
 | H3 | Batch-6: card reconcile + scroll + "Arriving…" | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (fixture) | 209/209 ✅ · 8 tests · live scroll 360/544 @12 ✅ | 4.5/5 |
 | H4 | Batch-6: hut model + ghost + arriving gait | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 1 micro-round (gait) | 209/209 ✅ · 1 call/hut ✅ · live ✓ | 4.5/5 |
+| H-fix | Batch-6 review fix round (C1, I1, M1–M3) | ✅ complete | space-bunny + mimo + muse-spark (3 parallel) | 1 | 216/216 ✅ · live: arriving lock releases + real Chop assigned ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -158,6 +159,21 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-05 — Batch-6 review fix round — 1 Critical · 1 Important · 3 Minor, all fixed (3 parallel free models)
+- **C1 (Critical, `space-bunny`)** — the arriving lock never released: `chop`/`berries`/`rest`/`tend`
+  stayed dead for the session after a walk-in. The loop now owns the transition
+  (`setDisabled(btn, arriving)`); **live re-verified**: lock `true` during the walk, `false` after
+  settling, and a real Chop click assigns the newcomer. Also **M2**: card reconcile keyed on
+  `list.children.length` (a duplicate-id save can no longer append cards forever) and **M3**:
+  index-8+ voice/variant tests (Lily at index 8, 4 tests).
+- **I1 (Important, `mimo`)** — migrated states were returned without v3 validation, dropping the
+  roster `[8, 12]` rule on old saves (an out-of-band roster could silently eat a paid arrival). Both
+  branches now `return isPlausibleState(v3) ? v3 : null`; the v1 fixture is a realistic 8-villager
+  village; out-of-band rejection pinned in both branches.
+- **M1 (Minor, `muse-spark`)** — world generation now reserves the hut plots. **Pre-fix seeds 2/7/42
+  already violated clearance** (2.35/2.43/2.31 < 2.5); post-fix every probed seed ≥ 2.5.
+- Gates **216/216** · C1 live re-verified · console clean · review report `docs/tasks/H-review-report.md`.
 
 ### 2026-10-05 — Batch-6 (huts → newcomers) wave complete — 4 parallel tasks + 2 micro-rounds (free models)
 - **H1 sim** (5/5): hut kind/cost, the arrivals queue with the frozen
