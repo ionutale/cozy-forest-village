@@ -1,25 +1,35 @@
-// Persistence (DESIGN.md §3, B3; schema v3 = favors + hut plots + arrivals): localStorage
-// save / load / autosave.
+// Persistence (DESIGN.md §3, B3; schema v4 = favors + hut plots + arrivals + spices + visitor):
+// localStorage save / load / autosave.
 // The GameState is plain JSON-safe data (no Maps / class instances) — that is a
 // guarantee of the sim, so JSON.stringify/parse round-trips it losslessly.
 // Every entry point is defensive: persist must never throw into the frame loop.
 
-import { CHAIN_LENGTH, HUT_PLOTS, VILLAGE_CAP, createFavors } from '../sim';
+import { CHAIN_LENGTH, FIRST_VISIT_MS, HUT_PLOTS, TRADES_PER_VISIT, VILLAGE_CAP, createFavors } from '../sim';
 import type { FavorsState, GameState } from '../sim';
 
 export const STORAGE_KEY = 'cozy-forest-village.save';
-/** v3 = v2 + the four hut plots + arrivals; migrations chain v1 → v2 → v3 (DESIGN §3). */
-export const VERSION = 3;
+/**
+ * v4 = v3 + `resources.spices` + the trader's `visitor`; migrations chain
+ * v1 → v2 → v3 → v4 (DESIGN §3 persist, batch 7).
+ */
+export const VERSION = 4;
 const AUTOSAVE_INTERVAL_MS = 3000;
 /** Roster floor (spec Part 2): the fixed eight of DESIGN §3's roster. */
 const MIN_VILLAGERS = 8;
 /** `castIndex` ceiling (spec Part 2): one row per hut plot — four newcomer cast entries. */
 const MAX_CAST_INDEX = 3;
 
-/** Pre-favors schema (v1): everything in GameState except the favors block and arrivals. */
-type V1GameState = Omit<GameState, 'favors' | 'arrivals'>;
-/** Pre-arrivals schema (v2): v1 + the favors block; no hut plots, no arrivals. */
-type V2GameState = Omit<GameState, 'arrivals'>;
+/**
+ * Every pre-v4 schema shares this much: the pantry has no `spices` key and there is no trader
+ * yet — both arrive with schema v4 (batch 7).
+ */
+type PreVisitor = { resources: Omit<GameState['resources'], 'spices'> };
+/** Pre-favors schema (v1): everything in GameState except the favors block, arrivals and v4 fields. */
+type V1GameState = Omit<GameState, 'favors' | 'arrivals' | 'visitor' | 'resources'> & PreVisitor;
+/** Pre-arrivals schema (v2): v1 + the favors block; no hut plots, no arrivals, no v4 fields. */
+type V2GameState = Omit<GameState, 'arrivals' | 'visitor' | 'resources'> & PreVisitor;
+/** Pre-visitor schema (v3): v2 + the four hut plots + arrivals; no spices, no visitor yet. */
+type V3GameState = Omit<GameState, 'visitor' | 'resources'> & PreVisitor;
 
 interface SaveFile {
   version: number;
@@ -119,7 +129,7 @@ function isPlausibleArrivals(value: unknown): boolean {
 }
 
 /** v3 state = v2 checks + the arrivals shape + the `[8, 12]` roster bound (spec Part 2). */
-function isPlausibleState(value: unknown): value is GameState {
+function isPlausibleV3State(value: unknown): value is V3GameState {
   if (!isPlausibleV2State(value)) return false;
   const arrivals = (value as V2GameState & { arrivals?: unknown }).arrivals;
   if (!isPlausibleArrivals(arrivals)) return false;
@@ -128,12 +138,53 @@ function isPlausibleState(value: unknown): value is GameState {
 }
 
 /**
+ * Visitor-shape check (schema v4, spec Part 2): a record with an `'away' | 'visiting'` phase,
+ * a finite `inMs ≥ 0` (away: until arrival · visiting: until departure), a finite
+ * `visitMs ≥ 0` (elapsed in the current visit) and an integer `tradesLeft` in
+ * `[0, TRADES_PER_VISIT]`. Wrong shape → the save is rejected → fresh game.
+ */
+function isPlausibleVisitor(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (value.phase !== 'away' && value.phase !== 'visiting') return false;
+  const inMs = value.inMs;
+  if (typeof inMs !== 'number' || !Number.isFinite(inMs) || inMs < 0) return false;
+  const visitMs = value.visitMs;
+  if (typeof visitMs !== 'number' || !Number.isFinite(visitMs) || visitMs < 0) return false;
+  const tradesLeft = value.tradesLeft;
+  if (
+    typeof tradesLeft !== 'number' ||
+    !Number.isInteger(tradesLeft) ||
+    tradesLeft < 0 ||
+    tradesLeft > TRADES_PER_VISIT
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * v4 state = the v3 checks + the two batch-7 fields: a finite `spices ≥ 0` in the pantry and a
+ * visitor of the right shape (spec Part 2). The v4 fields are read off the raw record first so
+ * the guard narrows to `GameState` only once every rule has passed.
+ */
+function isPlausibleState(value: unknown): value is GameState {
+  if (!isRecord(value)) return false;
+  const resources = value.resources;
+  if (!isRecord(resources)) return false;
+  const spices = resources.spices;
+  if (typeof spices !== 'number' || !Number.isFinite(spices) || spices < 0) return false;
+  if (!isPlausibleVisitor(value.visitor)) return false;
+  return isPlausibleV3State(value);
+}
+
+/**
  * Additive migration v2 → v3 (DESIGN §3 persist; spec Part 2): append the four `hut-1…hut-4`
  * plots from HUT_PLOTS — only those the save does not already have — and start with an empty
  * arrivals queue. The roster and every existing structure are untouched, so an existing
- * village simply gains four empty plots.
+ * village simply gains four empty plots. Returns the v3 shape: the chain continues with
+ * `migrateV3toV4`.
  */
-function migrateV2toV3(state: V2GameState): GameState {
+function migrateV2toV3(state: V2GameState): V3GameState {
   const have = new Set(state.structures.map((s) => s.id));
   const huts = HUT_PLOTS.filter((plot) => !have.has(plot.id)).map((plot) => ({
     id: plot.id,
@@ -145,12 +196,27 @@ function migrateV2toV3(state: V2GameState): GameState {
 }
 
 /**
+ * Additive migration v3 → v4 (DESIGN §3 persist; spec Part 2): the pantry gains `spices = 0`
+ * and the village gains an away visitor whose first visit lands at `FIRST_VISIT_MS`. Roster,
+ * resources, structures, favors and arrivals are untouched — an existing v3 village simply
+ * gains the trader's schedule.
+ */
+function migrateV3toV4(state: V3GameState): GameState {
+  return {
+    ...state,
+    resources: { ...state.resources, spices: 0 },
+    visitor: { phase: 'away', inMs: FIRST_VISIT_MS, visitMs: 0, tradesLeft: 0 },
+  };
+}
+
+/**
  * Load the saved game. Migrations chain additively (DESIGN §3 persist): v1 → v2 (favors) →
- * v3 (hut plots + arrivals). Each older version is validated against *its own* schema, and
- * the **migrated result is then validated as v3 as well** — so a v1/v2 village always
- * survives, and a save whose roster falls outside `[8, 12]` is rejected rather than migrated
- * into one that would drive `castIndex` off the newcomer cast table (review I1). Any failure
- * (missing, bad JSON, unknown version, wrong shape) → null. Never throws.
+ * v3 (hut plots + arrivals) → v4 (spices + visitor). Each older version is validated against
+ * *its own* schema, and the **migrated result is then validated as v4 as well** — so a
+ * v1/v2/v3 village always survives, while a save with an out-of-range roster, a missing
+ * `spices` or a broken visitor is rejected rather than migrated into one the sim cannot run
+ * (the batch-6 review made post-migration validation a rule: I1). Any failure (missing, bad
+ * JSON, unknown version, wrong shape) → null. Never throws.
  */
 export function loadGame(storage: Storage = localStorage): GameState | null {
   try {
@@ -163,13 +229,18 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
       if (!isPlausibleState(parsed.state)) return null;
       return parsed.state;
     }
+    if (parsed.version === 3) {
+      if (!isPlausibleV3State(parsed.state)) return null;
+      // Post-migration re-validation (batch-6 review I1): the migration constructs
+      // spices/visitor itself, but the roster bound sits on fields it never touches.
+      const v4 = migrateV3toV4(parsed.state);
+      return isPlausibleState(v4) ? v4 : null;
+    }
     if (parsed.version === 2) {
       if (!isPlausibleV2State(parsed.state)) return null;
-      // I1: validate the migrated result as v3 too. `migrateV2toV3` constructs the arrivals
-      // shape itself, but the roster bound sits on a pre-existing field the migration never
-      // touches — an out-of-range roster would drive `castIndex` off the newcomer cast table.
-      const v3 = migrateV2toV3(parsed.state);
-      return isPlausibleState(v3) ? v3 : null;
+      // v2 → v3 → v4, then the same post-migration v4 validation.
+      const v4 = migrateV3toV4(migrateV2toV3(parsed.state));
+      return isPlausibleState(v4) ? v4 : null;
     }
     if (parsed.version === 1) {
       if (!isPlausibleV1State(parsed.state)) return null;
@@ -179,8 +250,8 @@ export function loadGame(storage: Storage = localStorage): GameState | null {
         ...parsed.state,
         favors: createFavors(parsed.state.villagers.length),
       };
-      const v3 = migrateV2toV3(v2);
-      return isPlausibleState(v3) ? v3 : null;
+      const v4 = migrateV3toV4(migrateV2toV3(v2));
+      return isPlausibleState(v4) ? v4 : null;
     }
     return null;
   } catch {

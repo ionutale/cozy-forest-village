@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEY, VERSION, clearSave, loadGame, saveGame, startAutosave } from './index';
-import { CHAIN_LENGTH, FIRST_OFFER_MS, createInitialState } from '../sim';
+import { CHAIN_LENGTH, FIRST_OFFER_MS, FIRST_VISIT_MS, TRADES_PER_VISIT, createInitialState } from '../sim';
 import type { GameState } from '../sim';
 
 /** Minimal in-memory Storage fake matching the DOM Storage interface. */
@@ -44,6 +44,17 @@ function asV2(state: GameState): GameState {
     ...state,
     structures: state.structures.filter((s) => s.kind !== 'hut'),
   });
+}
+
+/**
+ * A batch-6 (v3) save: hut plots and arrivals present, no visitor and no spices — the v3 → v4
+ * migration's input (resources is copied so the delete never mutates the caller's state).
+ */
+function asV3(state: GameState): GameState {
+  const v3 = { ...state, resources: { ...state.resources } };
+  delete (v3 as unknown as Record<string, unknown>).visitor;
+  delete (v3.resources as unknown as Record<string, unknown>).spices;
+  return v3;
 }
 
 /**
@@ -115,8 +126,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 round-trip with favors', () => {
-    it('saves as the current schema (v3) and restores an active favor mid-progress plus nextOfferMs', () => {
+  describe('v4 round-trip with favors', () => {
+    it('saves as the current schema (v4) and restores an active favor mid-progress plus nextOfferMs', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.favors.byVillager[0] = { step: 1, active: true, progress: 3 };
@@ -124,7 +135,7 @@ describe('persist', () => {
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
       expect(raw.version).toBe(VERSION);
-      expect(VERSION).toBe(3); // v3 = v2 + the four hut plots + arrivals (DESIGN §3 persist)
+      expect(VERSION).toBe(4); // v4 = v3 + resources.spices + the trader's visitor (DESIGN §3 persist)
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
       expect(loaded).toEqual(state);
@@ -142,10 +153,10 @@ describe('persist', () => {
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob() }));
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
-      // The village survives untouched.
+      // The village survives untouched (the migration adds only spices + the visitor).
       expect(loaded!.tick).toBe(42);
       expect(loaded!.seed).toBe(7);
-      expect(loaded!.resources).toEqual({ wood: 5, berries: 2 });
+      expect(loaded!.resources).toEqual({ wood: 5, berries: 2, spices: 0 });
       expect(loaded!.villagers).toHaveLength(8);
       expect(loaded!.villagers[0]!.task).toBe('chop');
       expect(loaded!.villagers[0]!.progressMs).toBe(400);
@@ -181,7 +192,7 @@ describe('persist', () => {
       expect(loaded).not.toBeNull();
       // The existing village is untouched …
       expect(loaded!.tick).toBe(state.tick);
-      expect(loaded!.resources).toEqual({ wood: 17, berries: 0 });
+      expect(loaded!.resources).toEqual({ wood: 17, berries: 0, spices: 0 });
       expect(loaded!.villagers).toEqual(state.villagers);
       expect(loaded!.favors).toEqual(state.favors);
       expect(loaded!.fire).toEqual(state.fire);
@@ -220,8 +231,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v1 → v2 → v3 chained migration (Review Focus 4)', () => {
-    it('keeps the village intact and adds four unbuilt hut plots plus an empty queue', () => {
+  describe('v1 → v4 chained migration (Review Focus 4 + 5)', () => {
+    it('keeps the village intact and adds hut plots, an empty queue, spices and the visitor', () => {
       const storage = makeStorageFake();
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob() }));
 
@@ -230,7 +241,7 @@ describe('persist', () => {
       // v1 → v2 half: the village survives, chains start fresh.
       expect(loaded!.tick).toBe(42);
       expect(loaded!.seed).toBe(7);
-      expect(loaded!.resources).toEqual({ wood: 5, berries: 2 });
+      expect(loaded!.resources).toEqual({ wood: 5, berries: 2, spices: 0 });
       expect(loaded!.villagers).toHaveLength(8);
       expect(loaded!.villagers[0]!.name).toBe('Fern');
       expect(loaded!.villagers[0]!.progressMs).toBe(400);
@@ -244,6 +255,13 @@ describe('persist', () => {
       expect(huts.map((h) => h.id)).toEqual(['hut-1', 'hut-2', 'hut-3', 'hut-4']);
       expect(huts.every((h) => !h.built)).toBe(true);
       expect(loaded!.arrivals).toEqual([]);
+      // v3 → v4 half (Review Focus 5): the chain reaches schema v4 end-to-end.
+      expect(loaded!.visitor).toEqual({
+        phase: 'away',
+        inMs: FIRST_VISIT_MS,
+        visitMs: 0,
+        tradesLeft: 0,
+      });
     });
 
     it('rejects a v1 roster outside [8, 12] after the chain (review I1)', () => {
@@ -252,6 +270,121 @@ describe('persist', () => {
       // roster bound catches them, before they can drive castIndex off the cast table.
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob(7) }));
       expect(loadGame(storage)).toBeNull();
+    });
+  });
+
+  describe('v3 → v4 migration', () => {
+    it('adds spices 0 and an away visitor scheduled for the first visit, village untouched', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.resources.wood = 17;
+      state.villagers[0]!.task = 'chop';
+      const v3 = asV3(state); // batch-6 save: huts + arrivals, no visitor, no spices
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: v3 }));
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      // The village is untouched …
+      expect(loaded!.tick).toBe(state.tick);
+      expect(loaded!.villagers).toEqual(state.villagers);
+      expect(loaded!.favors).toEqual(state.favors);
+      expect(loaded!.structures).toEqual(state.structures);
+      expect(loaded!.arrivals).toEqual([]);
+      expect(loaded!.fire).toEqual(state.fire);
+      expect(loaded!.pot).toEqual(state.pot);
+      // … and it gains exactly the two v4 fields.
+      expect(loaded!.resources).toEqual({ wood: 17, berries: 0, spices: 0 });
+      expect(loaded!.visitor).toEqual({
+        phase: 'away',
+        inMs: FIRST_VISIT_MS,
+        visitMs: 0,
+        tradesLeft: 0,
+      });
+    });
+
+    it('rejects a v3 blob that fails the v3 shape check', () => {
+      const storage = makeStorageFake();
+      const v3 = asV3(createInitialState());
+      delete (v3 as unknown as Record<string, unknown>).arrivals;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: v3 }));
+      expect(loadGame(storage)).toBeNull();
+    });
+  });
+
+  describe('v4 round-trip mid-visit (Review Focus 1)', () => {
+    it('restores a visiting trader exactly: countdown, elapsed visit and trades left', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.visitor = { phase: 'visiting', inMs: 75_000, visitMs: 45_000, tradesLeft: 1 };
+      state.resources.spices = 2;
+
+      saveGame(state, storage);
+      const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
+      expect(raw.version).toBe(4); // WRITE is always the current schema
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      expect(loaded).toEqual(state);
+      expect(loaded!.visitor).toEqual({ phase: 'visiting', inMs: 75_000, visitMs: 45_000, tradesLeft: 1 });
+      expect(loaded!.resources.spices).toBe(2);
+    });
+  });
+
+  describe('v4 visitor validation', () => {
+    it('returns null for an invalid visitor shape', () => {
+      const storage = makeStorageFake();
+      const bad: unknown[] = [
+        undefined, // visitor missing entirely
+        'away', // not a record
+        { inMs: 100, visitMs: 0, tradesLeft: 0 }, // no phase
+        { phase: 'gone', inMs: 100, visitMs: 0, tradesLeft: 0 }, // phase off-enum
+        { phase: 'visiting', inMs: -1, visitMs: 0, tradesLeft: 0 }, // negative countdown
+        { phase: 'visiting', inMs: 100, visitMs: -1, tradesLeft: 0 }, // negative elapsed
+        { phase: 'visiting', inMs: 'soon', visitMs: 0, tradesLeft: 0 }, // non-number countdown
+        { phase: 'visiting', inMs: 100, visitMs: Infinity, tradesLeft: 0 }, // non-finite → null in JSON
+        { phase: 'visiting', inMs: 100, visitMs: 0 }, // no tradesLeft
+        { phase: 'visiting', inMs: 100, visitMs: 0, tradesLeft: -1 }, // below the floor
+        { phase: 'visiting', inMs: 100, visitMs: 0, tradesLeft: TRADES_PER_VISIT + 1 }, // one above stock
+        { phase: 'visiting', inMs: 100, visitMs: 0, tradesLeft: 1.5 }, // not an integer
+      ];
+      for (const visitor of bad) {
+        const state = createInitialState();
+        (state as unknown as Record<string, unknown>).visitor = visitor;
+        storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+        expect(loadGame(storage)).toBeNull();
+      }
+    });
+
+    it('accepts both phases at the valid boundaries', () => {
+      const storage = makeStorageFake();
+      const visitors: GameState['visitor'][] = [
+        { phase: 'away', inMs: FIRST_VISIT_MS, visitMs: 0, tradesLeft: 0 },
+        { phase: 'visiting', inMs: 0, visitMs: 45_000, tradesLeft: TRADES_PER_VISIT },
+      ];
+      for (const visitor of visitors) {
+        const state = createInitialState();
+        state.visitor = visitor;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toEqual(state);
+      }
+    });
+  });
+
+  describe('v4 spices validation', () => {
+    it('returns null when spices is missing, non-finite or negative', () => {
+      const storage = makeStorageFake();
+      for (const spices of [undefined, -1, Infinity, NaN, 'pinch']) {
+        const state = createInitialState();
+        (state.resources as unknown as Record<string, unknown>).spices = spices;
+        storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+        expect(loadGame(storage)).toBeNull();
+      }
+
+      // A non-negative finite number round-trips.
+      const full = createInitialState();
+      full.resources.spices = 3;
+      saveGame(full, storage);
+      expect(loadGame(storage)).toEqual(full);
     });
   });
 
@@ -320,7 +453,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 round-trip with arrivals (Review Focus 1)', () => {
+  describe('v4 round-trip with arrivals (Review Focus 1)', () => {
     it("restores a villager mid-walk-in and a pending arrival's countdown exactly", () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -331,7 +464,7 @@ describe('persist', () => {
 
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
-      expect(raw.version).toBe(3);
+      expect(raw.version).toBe(VERSION);
 
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
@@ -343,7 +476,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 arrivals validation', () => {
+  describe('v4 arrivals validation', () => {
     it('returns null when arrivals is missing or not an array', () => {
       const storage = makeStorageFake();
       for (const arrivals of [undefined, 'queue', 42, { structureId: 'hut-1' }]) {
@@ -398,7 +531,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 roster bound', () => {
+  describe('v4 roster bound', () => {
     it('returns null above the 12-villager cap', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
