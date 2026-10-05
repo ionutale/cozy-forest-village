@@ -344,3 +344,43 @@ neutral chip reads as dead, dimming an orange one does not. So the disabled trad
 to that same neutral register (no new colours, same palette), keeps `opacity: 0.45` for parity, and
 the `:hover` brightening is gated on `:not([aria-disabled='true'])` to match `.build-btn`. Gate after
 the fix: `pnpm exec tsc --noEmit` exit 0, `pnpm build` exit 0, `pnpm test` 254/254.
+
+**Fix round after the batch-7 review — M1 and M3.** Both applied minimally; the review's other
+findings belong to the sim and render writers.
+
+*M1 — the visit-end auto-close never told the render layer.* `closeTraderFace()` flipped
+`traderMode`, hid the card and hid the popover, but nothing told the world, so `traderSelected`
+stayed `true` in the render layer and the next visit re-lit the selection ring under a popover that
+was not open — for the whole visit, until the player happened to click the canvas. One line:
+
+```ts
+actions.onSelect(null);
+```
+
+Safe for the reason the review gives, and worth restating because it is the load-bearing part:
+`traderMode` can only be `true` while `selectedId === null && selectedStructureId === null`, since
+every other face opens through `clearSelectionVisuals`. So the other halves of main.ts's `onSelect`
+(`render.setSelected(null)`, `render.setSelectedStructure(null)`, `render.focusVillager(null)`) are
+no-ops here rather than collateral damage. It also fires only when the face was genuinely open —
+the `if (!traderMode) return` guard at the top means main.ts's per-click `selectTrader(false)` for
+every villager and ground click stays silent.
+
+*M3 — the "simultaneously" hint case.* Added one test with a visiting trader, an active favor **and**
+a thanks name in the same state, so the chain runs in the order it actually executes rather than one
+edge at a time:
+
+```
+thanks        → 'Fern is delighted!'
+favor (one down, same state) → 'V1 would love a warm meal (0/1).'
+trader (favor gone)          → 'A trader is visiting!'
+embers (on the full state)   → 'Only embers left — someone should tend the fire.'
+```
+
+The embers assertion is one line beyond the brief's ask, and it pins the top of the chain in the
+same fixture — a pairwise suite can be transitively consistent and still leave the extremes to
+chance.
+
+*Gate:* `pnpm exec tsc --noEmit` exit 0, `pnpm build` exit 0, `pnpm test` **260/260**. The first run
+showed 3 failures, all in `src/render/trader.test.ts` and `src/sim/visitor.test.ts` — other writers'
+mid-flight files, corresponding to the review's M2 (the giant-tick hearty-eat test) and the render
+yaw work. I did not touch them; they landed green on the re-run.

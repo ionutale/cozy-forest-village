@@ -250,6 +250,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     refs.traderCard.hidden = true;
     // Nothing else is selected, so the popover itself has no reason to stay open.
     if (selectedId === null && selectedStructureId === null) popover.hidden = true;
+    // Review M1: closing the face is not enough — the world's selection ring has to hear about it.
+    // Without this the visit-end auto-close left `traderSelected` true in the render layer, so the
+    // next visit re-lit the ring under a popover that was no longer open, for the whole visit,
+    // until the player happened to click the canvas. Every other face opens through
+    // `clearSelectionVisuals`, so `traderMode` implies no villager and no structure is selected —
+    // which is what makes the other halves of `onSelect(null)` no-ops here rather than a bug.
+    actions.onSelect(null);
   }
 
   const onPopoverClick = (ev: Event): void => {

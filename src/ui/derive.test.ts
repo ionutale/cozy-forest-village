@@ -749,6 +749,28 @@ describe('traderHintLine — the hint slot (T3)', () => {
     expect(villageLine(state({ visitor: visiting(), fire: { fuel: 90, max: 100 } }), null)).toBe(TRADER_HINT);
   });
 
+  // Review M3: the pairwise cases above are transitive, but Review Focus 4 asks for the three
+  // signals *simultaneously*, and only this shape exercises the chain in the order it actually
+  // runs rather than one edge at a time.
+  it('all at once: a visiting trader, an active favor AND a thanks name', () => {
+    const both = state({
+      visitor: visiting(),
+      villagers: [villager('v1')],
+      favors: favors([{ active: true }]),
+    });
+    // thanks wins, and the trader is never consulted.
+    expect(villageLine(both, 'Fern')).toBe('Fern is delighted!');
+    // one edge down the same state: the favor, still never the trader.
+    expect(villageLine(both, null)).toBe('V1 would love a warm meal (0/1).');
+    // and one more: with the favor gone, the trader is finally what shows.
+    const noFavor = state({ visitor: visiting(), villagers: [villager('v1')] });
+    expect(villageLine(noFavor, null)).toBe(TRADER_HINT);
+    // embers still outranks all three together, so the top of the chain is pinned in one state too.
+    expect(villageLine({ ...both, fire: { fuel: 0, max: 100 } }, 'Fern')).toBe(
+      'Only embers left — someone should tend the fire.',
+    );
+  });
+
   it('returns to the next slot the moment the visit ends (the "yields … returning after" half)', () => {
     const away = state({ visitor: AWAY, fire: { fuel: 20, max: 100 } });
     expect(villageLine(away, null)).toBe('The fire is dimming.');
