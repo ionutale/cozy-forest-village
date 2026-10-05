@@ -14,6 +14,7 @@ import {
   tick,
   trade,
 } from './index';
+import { restSpot } from './tasks';
 
 /** Ticks the sim forward in fixed steps. */
 function run(state: GameState, totalMs: number, stepMs: number): void {
@@ -204,5 +205,33 @@ describe('hearty meals', () => {
     runUntil(state, () => v.state === 'resting', 10_000, 50);
     // Step-0 wants a single self eat: the hearty arrival completes it.
     expect(state.favors.byVillager[0]).toEqual({ step: 1, active: false, progress: 0 });
+  });
+
+  it('one giant tick eats at most once: single spice, single hearty eat', () => {
+    const state = createInitialState();
+    state.pot.meals = 1;
+    state.fire.fuel = 100;
+    state.resources.spices = 2;
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, 'rest');
+    expect(v.state).toBe('walking');
+    // Park 0.5 short of v1's rest spot on its own ray: angular gap 0, so the
+    // walk steers straight to the spot and resolves to a rest arrival in one tick.
+    // (A raw spawn would spend the tick on the approach-arc bisector instead.)
+    const spot = restSpot({ x: 0, z: 0 }, 0); // campfire is at the origin
+    const len = Math.hypot(spot.x, spot.z);
+    v.pos.x = spot.x + (spot.x / len) * 0.5;
+    v.pos.z = spot.z + (spot.z / len) * 0.5;
+    // A single 300 s tick crosses the map, yet can still eat only once. (A literal
+    // 10 000 000 ms tick would floor the fuel to 0 in the decay step before the walk,
+    // so no eat could fire at all; 300 000 ms leaves fuel at 34, keeping the
+    // precondition alive.)
+    tick(state, 300_000);
+    expect(state.resources.spices).toBe(1);
+    expect(state.pot.meals).toBe(0);
+    expect(v.fedMs).toBe(HEARTY_FED_MS);
+    const eats = state.events.filter((e) => e.type === 'eat');
+    expect(eats).toHaveLength(1);
+    expect(eats[0]).toEqual({ type: 'eat', villagerId: v.id, hearty: true });
   });
 });

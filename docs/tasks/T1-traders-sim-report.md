@@ -71,3 +71,19 @@ Implemented plan Task T1 steps 1–5 verbatim against the spec Part 1 and DESIGN
 | `src/sim/visitor.test.ts` | **New** — 12 T1 tests |
 | `src/sim/sim.test.ts` | resources shape +`spices: 0` |
 | `docs/tasks/T1-traders-sim-report.md` | This file (new) |
+
+## Fix round — review finding M2 (spice half of Review Focus 3)
+
+Added the missing pin (`visitor.test.ts`, hearty-eats block): a `walking` villager parked
+0.5 short of its rest spot on its own ray (angular gap 0, so the walk steers straight and
+resolves to a rest arrival in one tick), `meals = 1`, fuel 100, `spices = 2`, then a single
+300 000 ms tick → `spices === 1`, `meals === 0`, exactly one `eat` carrying `hearty: true`,
+`fedMs === HEARTY_FED_MS`. Two deviations from the brief's sketch, both forced by sim
+mechanics: (1) a raw spawn spends a giant tick on the approach-arc bisector, never reaching
+the spot — the 0.5-short parking (arrival-boundary-test idiom) is what makes it one tick;
+(2) a literal 10 000 000 ms tick floors fuel to 0 in the decay step before the walk, so no
+eat could fire at all — 300 000 ms still crosses the whole map in one step while leaving
+fuel at 34 (≥ 33). No source changes; implementation eats once per arrival by construction.
+
+Verification: `tsc` clean, `build` ✓, 260/260 green (254 baseline + this test + 5
+concurrent additions).
