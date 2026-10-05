@@ -25,6 +25,13 @@ import {
 export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berries: number }>> =
   STRUCTURE_COST_TABLE;
 
+/**
+ * Binding numbers from DESIGN.md §3.2 that other layers display rather than re-derive: the
+ * garden's berry period, and what one cooked meal costs. Re-exported unchanged from `tasks.ts`
+ * (a re-export binds no local name, so it coexists with the internal import above).
+ */
+export { COOK_BERRIES, COOK_WOOD, GARDEN_PERIOD_MS } from './tasks';
+
 const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
 const WOODPILE_ANGLE = Math.PI / 2; // 90°, r = 2.6 (DESIGN.md §3.2)

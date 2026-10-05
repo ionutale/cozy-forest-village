@@ -1,5 +1,5 @@
 import type { GameState, StructureKind, TaskId, Villager } from '../sim';
-import { STRUCTURE_COST } from '../sim';
+import { COOK_BERRIES, COOK_WOOD, GARDEN_PERIOD_MS, STRUCTURE_COST } from '../sim';
 
 export interface UIActions {
   assignTask(villagerId: string, task: TaskId | null): void;
@@ -63,6 +63,8 @@ const STRUCTURE_NAMES: Record<StructureKind, string> = {
 interface CardParts {
   card: HTMLElement;
   label: HTMLElement;
+  /** A1: last rendered fed state, so the well-fed class is only touched on a transition. */
+  fed: boolean;
 }
 
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
@@ -193,7 +195,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     structureCard.hidden = structure === undefined;
     if (!structure) return;
 
-    const signature = `${structure.kind}|${structure.built}|${state.resources.wood}|${state.resources.berries}|${state.pot.meals}`;
+    // A1: the garden countdown ticks every second, so the *rendered* seconds go in the signature —
+    // not raw gardenMs. Putting the raw accumulator here would rewrite the card every frame and
+    // undo M1; the whole seconds change once a second, which is exactly when the text changes.
+    const growIn = structure.kind === 'garden' && structure.built ? secondsToBerry(state.gardenMs) : -1;
+    const signature =
+      `${structure.kind}|${structure.built}|${state.resources.wood}|` +
+      `${state.resources.berries}|${state.pot.meals}|${growIn}`;
     if (signature === lastStructureSignature) return;
     lastStructureSignature = signature;
 
@@ -206,9 +214,14 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       structureShort.textContent = '';
       setDisabled(buildBtn, true);
       buildBtn.hidden = true;
-      if (structure.kind === 'pot') structureStatus.textContent = `Meals: ${state.pot.meals}`;
-      else if (structure.kind === 'garden') structureStatus.textContent = 'Growing…';
-      else structureStatus.textContent = 'Built';
+      if (structure.kind === 'pot') {
+        // A1: name the recipe, so the meal count has a "what does it cost me" next to it.
+        structureStatus.textContent = `Meals: ${state.pot.meals} · ${COOK_BERRIES} berries + ${COOK_WOOD} wood each`;
+      } else if (structure.kind === 'garden') {
+        structureStatus.textContent = `Growing… ${secondsToBerry(state.gardenMs)}s`;
+      } else {
+        structureStatus.textContent = 'Built';
+      }
       return;
     }
 
@@ -348,6 +361,7 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       cards.set(v.id, {
         card,
         label: must<HTMLElement>(card, '.task-label'),
+        fed: false,
       });
       const dot = must<HTMLElement>(card, '.hat-dot');
       dot.style.background = v.hatColor;
@@ -369,6 +383,14 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
     if (villager.state === 'resting') return 'Resting';
     if (villager.state === 'working' && villager.task) return WORK_LABELS[villager.task];
     return 'Idle';
+  }
+
+  /** A1: whole seconds until the garden's next berry. `gardenMs` is a modulo accumulator in
+   *  [0, GARDEN_PERIOD_MS), so the remainder is the time left. Rounded *up*, because floor would
+   *  read "0s" for the last half-second while a berry is still on its way. */
+  function secondsToBerry(gardenMs: number): number {
+    const remaining = Math.max(0, GARDEN_PERIOD_MS - gardenMs);
+    return Math.max(0, Math.ceil(remaining / 1000));
   }
 
   function fireState(fuel: number, max: number): string {
@@ -417,6 +439,17 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
           }
         }
       }
+      // A1: a log deposit (fuel-add) pulses the fire pill, same mechanism as the yields. One log
+      // is +25 fuel, so this fires on real progress rather than on the 0.22/s decay.
+      if (state.events.some((ev) => ev.type === 'fuel-add')) {
+        const now = performance.now();
+        if (now - (lastPulseAt.get('fuel') ?? -Infinity) >= PULSE_THROTTLE_MS) {
+          lastPulseAt.set('fuel', now);
+          fuelPill.classList.remove('yield-pulse');
+          void fuelPill.offsetWidth; // force reflow so the same class re-triggers
+          fuelPill.classList.add('yield-pulse');
+        }
+      }
       // Fuel: number + bar + a data-state class. The bar is a fixed-width track so a shrinking
       // fill cannot reflow the pill.
       const fuel = String(Math.round(state.fire.fuel));
@@ -433,6 +466,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
         if (!parts) continue;
         const label = cardLabel(villager);
         if (parts.label.textContent !== label) parts.label.textContent = label;
+        // A1 well-fed tint: `fedMs` decays every frame, so the boolean is compared against the
+        // last render and the class is only written when it actually flips.
+        const fed = villager.fedMs > 0;
+        if (parts.fed !== fed) {
+          parts.fed = fed;
+          parts.label.classList.toggle('well-fed', fed);
+        }
       }
       if (selectedId) syncActiveButtons(state);
       if (selectedStructureId) syncStructureCard(state);

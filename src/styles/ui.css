@@ -170,6 +170,10 @@ body { font-family: var(--font); color: var(--ink); background: var(--paper-2); 
 
 .villager-card.selected .task-label { color: var(--accent); }
 
+/* A1 well-fed: a leaf-green tint on the task label while the villager's buff lasts. Kept below
+   the selected rule on purpose — a selected card reads accent, and that is the stronger signal. */
+.task-label.well-fed { color: var(--leaf); }
+
 /* Zone 3 — task popover: docked as a footer below the list, so no card is ever covered. */
 
 #task-popover {
