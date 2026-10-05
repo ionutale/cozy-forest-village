@@ -61,9 +61,11 @@ export interface Villager {
   targetNodeId: string | null;  // resolves against nodes OR structures
 }
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done';
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade';
   villagerId?: string;
   structureId?: string;
+  tradeKind?: 'berries' | 'spice'; // batch 7: which trade fired
+  hearty?: boolean;                // batch 7: the eat was a hearty (spiced) meal
 }
 export type FavorWant =
   | { kind: 'eat'; who: 'self' | 'any'; count: number } // eat events (requester or anyone)
@@ -74,11 +76,12 @@ export type FavorWant =
 export interface FavorProgress { step: number; active: boolean; progress: number }
 export interface FavorsState { byVillager: FavorProgress[]; nextOfferMs: number }
 export interface Arrival { structureId: string; inMs: number; castIndex: number } // batch 6: pending walk-ins
+export interface Visitor { phase: 'away' | 'visiting'; inMs: number; visitMs: number; tradesLeft: number } // batch 7
 
 export interface GameState {
   tick: number;              // increments once per tick() call
   seed: number;
-  resources: { wood: number; berries: number };
+  resources: { wood: number; berries: number; spices: number };
   villagers: Villager[];
   nodes: ResourceNode[];
   structures: Structure[];
@@ -89,6 +92,7 @@ export interface GameState {
   pendingEvents: SimEvent[]; // queued by out-of-tick producers (e.g. buildStructure); flushed into events at tick start
   favors: FavorsState;       // batch 4: per-villager favor chains (binding rules in §3.2)
   arrivals: Arrival[];       // batch 6: pending newcomer walk-ins (binding rules in §3.2)
+  visitor: Visitor;           // batch 7: the trader's visit schedule (binding rules in §3.2)
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -107,6 +111,13 @@ export const HUT_SETTLE_MS: number;
 export const VILLAGE_CAP: number;
 export const HUT_PLOTS: readonly { id: string; pos: Vec2 }[];
 export const NEWCOMER_CAST: readonly { name: string; hatColor: string }[];
+export const FIRST_VISIT_MS: number;
+export const VISIT_STAY_MS: number;
+export const NEXT_VISIT_GAP_MS: number;
+export const TRADER_WALK_MS: number;
+export const TRADES_PER_VISIT: number;
+export const HEARTY_FED_MS: number;
+export function trade(state: GameState, kind: 'berries' | 'spice'): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
 
@@ -132,6 +143,10 @@ export interface RenderHandle {
   setSelectedStructure(structureId: string | null): void;
   /** G5: gently ease the camera target toward a villager; null cancels any running ease. */
   focusVillager(villagerId: string | null): void;
+  /** T4 (batch 7): screen-space hit test for the trader while visiting. */
+  pickTrader(clientX: number, clientY: number): boolean;
+  /** T4 (batch 7): the trader's selection ring on/off. */
+  setTraderSelected(on: boolean): void;
 }
 export function initRender(canvas: HTMLCanvasElement): RenderHandle;
 ```
@@ -164,7 +179,8 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle;
 Contract rules: other layers import **types**, the read-only data constants
 (`STRUCTURE_COST`, `GARDEN_PERIOD_MS`, `COOK_BERRIES`, `COOK_WOOD`, `FIRST_OFFER_MS`,
 `NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`, `HUT_PLOTS`, `HUT_SETTLE_MS`,
-`VILLAGE_CAP`, `NEWCOMER_CAST`) and the `createFavors`/`favorWantFor`
+`VILLAGE_CAP`, `NEWCOMER_CAST`, `FIRST_VISIT_MS`, `VISIT_STAY_MS`, `NEXT_VISIT_GAP_MS`,
+`TRADER_WALK_MS`, `TRADES_PER_VISIT`, `HEARTY_FED_MS`) and the `createFavors`/`favorWantFor`/`trade`
 factories from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
@@ -253,6 +269,14 @@ factories from
   existing steering to the hut, then idles. Cast in completion order: Lily `#e3b7c4` · Rowan
   `#b03a3a` · Sage `#a8bd86` · Wren `#7d6a52`. Roster cap **12**; a newcomer's favor record appends
   in the same tick (arrays never desync).
+- **Trader visits** (batch 7): one visitor at a time. First visit after **240000 ms** of play; a visit
+  lasts **120000 ms** (walk in/out over **6000 ms** from the south edge); away **360000 ms** between
+  visits. `trade(state, kind)` sells `5 wood → 4 berries` or `6 berries → 1 spice`, max **3 trades
+  per visit**, refused while away or deficient. The `visitor` block drives it; the render derives
+  the trader's body position from `(phase, visitMs)` — the sim never tracks the trader's position.
+- **Hearty meals** (batch 7): eating with `spices > 0` consumes **1 spice**, sets
+  fedMs = **90000** (instead of 60000) and emits `eat` with `hearty: true`; all other eat rules
+  unchanged.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
@@ -263,9 +287,10 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 
 ### Persistence (save schema)
 
-`VERSION = 3` (batch 6; v2 was batch 4). **Migrations chain: v1 → v2 → v3.** v2 → v3 appends the
-four `hut-*` structures (unbuilt) and `arrivals: []`; the roster is untouched on load. Unknown
-versions or implausible shapes → fresh game (`loadGame` returns null; never throws).
+`VERSION = 4` (batch 7; v3 was batch 6). **Migrations chain: v1 → v2 → v3 → v4.** v3 → v4 adds
+`resources.spices = 0` and an away `visitor` (next visit `FIRST_VISIT_MS`); v2 → v3 appends the four
+`hut-*` structures (unbuilt) and `arrivals: []`. The village is untouched on load; unknown versions
+or implausible shapes → fresh game (`loadGame` returns null; never throws).
 
 ### Testability hook (all layers)
 
@@ -329,7 +354,9 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
   (zone 2), favor/delight text in the panel hint (zone 2), and a reserved `Favor:` line above the task
   grid in the popover (zone 3).
 - Batch 6 explicitly allows, *inside* the three zones: four hut plots and the dynamic villager-card
-  reconcile + panel list scroll (zone 2), and the "Arriving…" state on cards. Nothing else.
+  reconcile + panel list scroll (zone 2), and the "Arriving…" state on cards.
+- Batch 7 explicitly allows, *inside* the three zones: a Spices pill in the HUD (zone 1) and a third
+  popover face — the trader's two trade buttons with a "Trades left" line (zone 3). Nothing else.
 
 ## 7. Validation protocol (orchestrator)
 
