@@ -19,6 +19,9 @@ export interface RenderHandle {
   projectVillager(villagerId: string): { x: number; y: number } | null;
   /** B5: screen-space hit test against structure meshes (built or ghost). */
   pickStructure(clientX: number, clientY: number): string | null;
+  /** A4: hover cue — true when the pixel is over a villager (checked first) or a structure.
+      Read-only: same raycasts as the click chain, no selection or camera side effects. */
+  pickHover(clientX: number, clientY: number): boolean;
 }
 
 declare global {
@@ -164,6 +167,15 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
       ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
       raycaster.setFromCamera(ndc, camera);
       return structures.pick(raycaster);
+    },
+    pickHover(clientX: number, clientY: number): boolean {
+      if (!villagers && !structures) return false;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      // Same precedence as the click chain in main.ts: a villager wins over a structure.
+      return villagers?.pick(raycaster) != null || structures?.pick(raycaster) != null;
     },
     projectVillager(villagerId: string): { x: number; y: number } | null {
       if (!villagers || !villagers.project(villagerId, camera, scratch)) return null;

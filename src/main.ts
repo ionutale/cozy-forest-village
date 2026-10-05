@@ -70,6 +70,31 @@ canvas.addEventListener('pointermove', (ev) => {
   if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > CLICK_SLOP_PX) dragging = true;
 });
 
+/* A4 hover cursor cue: over a villager or structure the canvas shows 'pointer'. Throttled to
+   at most one raycast every ~80 ms AND at least 2 px of movement, and skipped entirely while a
+   button is held (orbiting/dragging). Read-only — selection, picking and OrbitControls are
+   untouched; the only allocation is the raycast itself. */
+const HOVER_THROTTLE_MS = 80;
+const HOVER_MIN_MOVE_PX = 2;
+let hoverLastT = 0;
+let hoverLastX = 0;
+let hoverLastY = 0;
+
+canvas.addEventListener('pointermove', (ev) => {
+  if (ev.buttons !== 0) return; // orbiting/dragging — leave the cursor alone
+  const now = performance.now();
+  if (now - hoverLastT < HOVER_THROTTLE_MS) return;
+  if (Math.hypot(ev.clientX - hoverLastX, ev.clientY - hoverLastY) < HOVER_MIN_MOVE_PX) return;
+  hoverLastT = now;
+  hoverLastX = ev.clientX;
+  hoverLastY = ev.clientY;
+  canvas.style.cursor = render.pickHover(ev.clientX, ev.clientY) ? 'pointer' : '';
+}, { passive: true });
+
+canvas.addEventListener('pointerleave', () => {
+  canvas.style.cursor = '';
+});
+
 canvas.addEventListener('pointerup', (ev) => {
   const moved = Math.hypot(ev.clientX - downX, ev.clientY - downY);
   const wasDrag = dragging || moved > CLICK_SLOP_PX;
