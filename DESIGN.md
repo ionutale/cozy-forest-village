@@ -77,6 +77,7 @@ export interface FavorProgress { step: number; active: boolean; progress: number
 export interface FavorsState { byVillager: FavorProgress[]; nextOfferMs: number }
 export interface Arrival { structureId: string; inMs: number; castIndex: number } // batch 6: pending walk-ins
 export interface Visitor { phase: 'away' | 'visiting'; inMs: number; visitMs: number; tradesLeft: number } // batch 7
+export interface Clock { dayMs: number } // batch 8: 0 = midnight; wraps at DAY_MS (binding rules in §3.2)
 
 export interface GameState {
   tick: number;              // increments once per tick() call
@@ -93,6 +94,7 @@ export interface GameState {
   favors: FavorsState;       // batch 4: per-villager favor chains (binding rules in §3.2)
   arrivals: Arrival[];       // batch 6: pending newcomer walk-ins (binding rules in §3.2)
   visitor: Visitor;           // batch 7: the trader's visit schedule (binding rules in §3.2)
+  clock: Clock;               // batch 8: time of day (binding rules in §3.2)
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -120,6 +122,11 @@ export const HEARTY_FED_MS: number;
 export const TRADE_WOOD_COST: number;
 export const TRADE_WOOD_YIELD: number;
 export const TRADE_BERRY_COST: number;
+export const DAY_MS: number;
+export const FRESH_START_T: number;
+export function dayT(state: GameState): number;
+export function dayPhase(state: GameState): 'night' | 'dawn' | 'day' | 'dusk';
+export function dayFactor(state: GameState): number;
 export function trade(state: GameState, kind: 'berries' | 'spice'): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
@@ -188,8 +195,8 @@ Contract rules: other layers import **types**, the read-only data constants
 `NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`, `HUT_PLOTS`, `HUT_SETTLE_MS`,
 `VILLAGE_CAP`, `NEWCOMER_CAST`, `FIRST_VISIT_MS`, `VISIT_STAY_MS`, `NEXT_VISIT_GAP_MS`,
 `TRADER_WALK_MS`, `TRADES_PER_VISIT`, `HEARTY_FED_MS`, `TRADE_WOOD_COST`, `TRADE_WOOD_YIELD`,
-`TRADE_BERRY_COST`) and the `createFavors`/`favorWantFor`/`trade`
-factories from
+`TRADE_BERRY_COST`, `DAY_MS`, `FRESH_START_T`) and the `createFavors`/`favorWantFor`/`trade`
+factories plus the `dayT`/`dayPhase`/`dayFactor` derivations from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
 
@@ -285,6 +292,15 @@ factories from
 - **Hearty meals** (batch 7): eating with `spices > 0` consumes **1 spice**, sets
   fedMs = **90000** (instead of 60000) and emits `eat` with `hearty: true`; all other eat rules
   unchanged.
+- **Day/night cycle** (batch 8): `clock.dayMs` advances by the tick's `dtMs` and wraps at
+  **`DAY_MS` 480000**; fresh games start at `FRESH_START_T` **0.25** (mid-morning) and saves
+  resume exactly. Phases by `dayT = dayMs / DAY_MS`: night `0–0.09`, dawn `0.09–0.22`, day
+  `0.22–0.78`, dusk `0.78–0.91`, night `0.91–1`. `dayFactor`: 1 by day, 0 by night, smoothstep
+  through the ramps. **Evening** (dusk + night only): idle, taskless villagers stroll (≈ half walk
+  speed) to a deterministic warm seat — angle `(index + 0.5) × 2.399963 rad`, radius
+  **`WARMING_RADIUS` 2.4** ± 0.2 hash jitter — and idle there; any assignment wins instantly and
+  the drift never fires by day. Rests **committed** during dusk/night run ×**`EVENING_REST_SCALE`
+  1.5**; every other timer is untouched.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
@@ -295,7 +311,8 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 
 ### Persistence (save schema)
 
-`VERSION = 4` (batch 7; v3 was batch 6). **Migrations chain: v1 → v2 → v3 → v4.** v3 → v4 adds
+`VERSION = 5` (batch 8; v4 was batch 7). **Migrations chain: v1 → v2 → v3 → v4 → v5.** v4 → v5 adds
+`clock = { dayMs: DAY_MS * FRESH_START_T }` (an ancient save wakes on a fresh morning); v3 → v4 adds
 `resources.spices = 0` and an away `visitor` (next visit `FIRST_VISIT_MS`); v2 → v3 appends the four
 `hut-*` structures (unbuilt) and `arrivals: []`. The village is untouched on load; unknown versions
 or implausible shapes → fresh game (`loadGame` returns null; never throws).
@@ -365,6 +382,7 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
   reconcile + panel list scroll (zone 2), and the "Arriving…" state on cards.
 - Batch 7 explicitly allows, *inside* the three zones: a Spices pill in the HUD (zone 1) and a third
   popover face — the trader's two trade buttons with a "Trades left" line (zone 3). Nothing else.
+- Batch 8 adds **no UI at all** — the sky is the clock; light, glows and ambience only.
 
 ## 7. Validation protocol (orchestrator)
 
