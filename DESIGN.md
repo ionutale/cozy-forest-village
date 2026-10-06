@@ -140,7 +140,7 @@ export const FRIEND_PERK_LEVEL: number;
 export const FRIEND_PERK_SCALE: number;
 export function bondLevelFor(state: GameState, a: string, b: string): BondLevel;
 export function strongestBondLevel(state: GameState, villagerId: string): BondLevel;
-export function bondPartners(state: GameState, villagerId: string): { id: string; name: string; level: BondLevel }[];
+export function bondPartners(state: GameState, villagerId: string): { id: string; name: string; level: 1 | 2 | 3 }[];
 export function trade(state: GameState, kind: 'berries' | 'spice'): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
@@ -324,7 +324,8 @@ Contract rules: other layers import **types**, the read-only data constants
   is the natural cooldown); every level crossing emits one `bond-up` (`otherId`, `bondLevel`).
   A **working** villager with a level-≥**`FRIEND_PERK_LEVEL` 2** partner within the same radius
   works at **`FRIEND_PERK_SCALE` 0.9×** period (stacking exactly like the well-fed modifier; no
-  other timer changes). Newcomers start at zero; `gapMs` is never saved.
+  other timer changes). A single oversized `dt` that crosses several thresholds emits one
+  `bond-up` at the level reached, never a burst. Newcomers start at zero; `gapMs` is never saved.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 

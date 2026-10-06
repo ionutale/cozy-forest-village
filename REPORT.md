@@ -90,6 +90,7 @@ the user re-instructs otherwise.
 | K2 | Batch-9: persist v6 | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ (persist 51/51) · live: sentinel 777 exact, no gapMs ✅ | 5/5 |
 | K3 | Batch-9: card mark + Bonds line | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ · live: "Close with Birch · Warming to Fern" ✅ | 5/5 |
 | K4 | Batch-9: bond hearts | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ · live hearts path ✓ (screenshots) | 4.5/5 |
+| K-fix | Batch-9 review fix round (I1, M1, M2, M3, M6) | ✅ complete | deepseek-v4.1-flash ×2 (parallel) | 1 | 312/312 ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -176,6 +177,20 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-06 — Batch-9 review fix round — 0 Critical · 1 Important · 6 Minor: 5 fixed, 2 doc truth-fixes (2 parallel on deepseek)
+- **I1 (Important, tests)** — the mandated "every other timer byte-identical" guard now exists: a
+  perk-on vs perk-off control deep-compare (cook, rest, `fedMs` decay, clock and fire all
+  byte-equal; only the perk worker's `progressMs`/yields/wood and the intentional knobs are
+  neutralized).
+- **M1/M2 (tests)** — the exact-3.0 boundary case and the giant-`dt` reunion no-burst pin.
+- **M3 (UI)** — the card close-friend predicate extracted to `hasCloseFriend` in `derive.ts` and
+  threshold-tested (a deliberate UI-owned literal `2`, kept apart from the sim's perk constant).
+- **M6 (report)** — the K1 inventory sentence corrected (`stepBonds` uses `levelOfScore`; the index
+  primitive serves the three helpers).
+- **M4/M5 (docs, orchestrator)** — DESIGN §3.2 gains the giant-`dt` single-`bond-up` clause;
+  `bondPartners.level` tightened to `1 | 2 | 3` (matching spec and code).
+- Gates **312/312 (16 files)** · tree clean.
 
 ### 2026-10-06 — Batch-9 (bonds) wave complete — 4 parallel + 1 micro-round on `deepseek-v4.1-flash` (user-chosen)
 - **K1 sim** (5/5): the 12×12 pair table; growth exactly `1/s` within `BOND_RADIUS` 3.0; thresholds
