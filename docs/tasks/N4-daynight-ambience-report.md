@@ -63,3 +63,24 @@ scalars + a shared scratch — allocation-free, as the task required.
 - **Mote clock**: `driftSec` starts at `0` when the ambient layer is created, so its phase differs
   from the old `timeSec` by a constant offset; the *speed* and all other parameters match exactly at
   day. This is the only way to vary drift speed without a positional jump.
+
+## Fix round — review M1 (night motes denser near the fire)
+
+**Finding M1** (`N-review-report.md`): spec Part 4 asks the night motes to be "slightly denser near
+the fire"; the shipped fireflies kept the uniform `r ≤ 20` scatter. The approved plan Step 3 had
+dropped the density clause, so the implementation matched the plan but not the spec.
+
+**Fix** (`src/render/ambient.ts` only): a new `MOTE_NIGHT_DENSITY = 0.5` constant and a per-frame
+`near = 1 − MOTE_NIGHT_DENSITY × night` factor that scales each mote's **base XZ radius** (the two
+`moteBase` horizontal components) when the frame's position is written. The Y column is height, not
+fire distance, so it keeps the shipped scatter. The sine drift amplitudes are untouched.
+
+- Deterministic, allocation-free (one extra scalar), and exactly factor `1.0` by day, so the day
+  scatter is restored byte-identically (`x × 1` is exact).
+- At full night the base scatter is halved: fireflies gather visibly nearer the campfire while the
+  existing color / speed / opacity day-night behavior is unchanged.
+
+**Re-verified:** `tsc --noEmit` clean · `pnpm build` success · `pnpm test` **279 passed (15 files)**,
+0 failed. (`src/sim/index.ts` was briefly red mid-edit from the concurrent M2 fix; re-ran until the
+tree settled — the only failures were never in this file.) No unit tests cover this layer; the
+orchestrator re-shoots the night frame.

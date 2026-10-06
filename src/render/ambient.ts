@@ -26,6 +26,10 @@ const MOTE_PULSE_RATE = 0.9;
 const MOTE_PULSE = 0.15;
 const MOTE_OPACITY = 0.5; // the shipped mote opacity; day restores it exactly
 const FIREFLY_COLOR = '#ffe1a0'; // warm ember toward which motes tint at night
+/** Batch 8 fix (review M1): at full night the fireflies' base XZ scatter shrinks to
+ *  `1 − MOTE_NIGHT_DENSITY` of the shipped radius, so they gather "slightly denser near the fire"
+ *  (spec Part 4). Exactly 1.0 by day, so the day scatter is restored byte-identically. */
+const MOTE_NIGHT_DENSITY = 0.5;
 
 interface Pose {
   x: number;
@@ -219,19 +223,23 @@ export function createAmbient(): AmbientLayer {
       flyR.instanceMatrix.needsUpdate = true;
       flyL.instanceMatrix.needsUpdate = true;
 
-      // Motes become fireflies at night: warmer tint toward the ember, slower drift and a gentle
-      // breathe. `driftSec` integrates a speed that eases 1 → 0.6 with `night`, so there is no
-      // phase jump; at `night === 0` it advances at exactly the shipped rate. Color and opacity are
-      // lerped by the same scalar, so day restores the shipped color (`#f6e7c6`) and opacity (0.5)
-      // exactly. `transparent` was set once at build.
+      // Motes become fireflies at night: warmer tint toward the ember, slower drift, a gentle
+      // breathe, and — review M1 — a scatter pulled in toward the fire (`near` factor, exactly 1 by
+      // day). `driftSec` integrates a speed that eases 1 → 0.6 with `night`, so there is no phase
+      // jump; at `night === 0` it advances at exactly the shipped rate. Color and opacity are lerped
+      // by the same scalar, so day restores the shipped color (`#f6e7c6`) and opacity (0.5) exactly.
+      // `transparent` was set once at build.
       driftSec += (dtMs / 1000) * (1 - MOTE_NIGHT_SLOW * night);
       moteMat.color.copy(moteDay).lerp(moteNight, night);
       moteMat.opacity = MOTE_OPACITY * (1 + night * MOTE_PULSE * Math.sin(timeSec * MOTE_PULSE_RATE));
+      // Base XZ radius only: the Y column is height, not fire distance, so it keeps the shipped
+      // scatter. `* near` is exact at day (`near === 1`).
+      const near = 1 - MOTE_NIGHT_DENSITY * night;
       for (let i = 0; i < MOTE_COUNT; i += 1) {
         const o = i * 3;
-        motePos[o] = (moteBase[o] ?? 0) + Math.sin(driftSec * 0.12 + (motePhase[o] ?? 0)) * 1.4;
+        motePos[o] = (moteBase[o] ?? 0) * near + Math.sin(driftSec * 0.12 + (motePhase[o] ?? 0)) * 1.4;
         motePos[o + 1] = (moteBase[o + 1] ?? 0) + Math.sin(driftSec * 0.09 + (motePhase[o + 1] ?? 0)) * 0.8;
-        motePos[o + 2] = (moteBase[o + 2] ?? 0) + Math.cos(driftSec * 0.1 + (motePhase[o + 2] ?? 0)) * 1.4;
+        motePos[o + 2] = (moteBase[o + 2] ?? 0) * near + Math.cos(driftSec * 0.1 + (motePhase[o + 2] ?? 0)) * 1.4;
       }
       moteAttr.needsUpdate = true;
     },
