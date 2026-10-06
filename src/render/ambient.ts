@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import type { GameState } from '../sim';
+import { dayFactor } from '../sim';
 import { PALETTE } from './palette';
 
 export interface AmbientLayer {
@@ -16,6 +17,15 @@ const TAU = Math.PI * 2;
 const BIRD_COUNT = 6;
 const FLY_COUNT = 8;
 const MOTE_COUNT = 60;
+/** Batch 8: below this `dayFactor` the diurnal species are gone; above it they ease back in. */
+const SPECIES_FADE_FROM = 0.35;
+/** Batch 8: fireflies drift at `1 − MOTE_NIGHT_SLOW` of the shipped mote speed (×0.6). */
+const MOTE_NIGHT_SLOW = 0.4;
+/** Batch 8: fireflies breathe a little — opacity pulse rate (rad/s) and amplitude, at night. */
+const MOTE_PULSE_RATE = 0.9;
+const MOTE_PULSE = 0.15;
+const MOTE_OPACITY = 0.5; // the shipped mote opacity; day restores it exactly
+const FIREFLY_COLOR = '#ffe1a0'; // warm ember toward which motes tint at night
 
 interface Pose {
   x: number;
@@ -80,6 +90,13 @@ export function createAmbient(): AmbientLayer {
   const mRoot = new THREE.Matrix4();
   const mPart = new THREE.Matrix4();
   const scratch: Pose = { x: 0, y: 0, z: 0, heading: 0, flap: 0 };
+  // Batch 8 scratch (allocated once, never per frame): the species fade scale, and the mote→firefly
+  // tint lerp endpoints. `driftSec` is the integrated mote clock so the night speed change is
+  // continuous rather than a phase jump when `timeSec` is simply scaled.
+  const speciesScale = new THREE.Vector3();
+  const moteDay = new THREE.Color(PALETTE.mote);
+  const moteNight = new THREE.Color(FIREFLY_COLOR);
+  let driftSec = 0;
 
   /** Wing local matrix (root offset + flap about the forward axis) under the current mRoot. */
   function setWing(mesh: THREE.InstancedMesh, i: number, ox: number, flap: number): void {
@@ -156,22 +173,32 @@ export function createAmbient(): AmbientLayer {
   const moteGeo = track(new THREE.BufferGeometry());
   const moteAttr = new THREE.BufferAttribute(motePos, 3);
   moteGeo.setAttribute('position', moteAttr);
-  const motes = new THREE.Points(
-    moteGeo,
-    track(new THREE.PointsMaterial({
-      color: PALETTE.mote, size: 0.16, transparent: true, opacity: 0.5, depthWrite: false,
-    })),
-  );
+  const moteMat = track(new THREE.PointsMaterial({
+    color: PALETTE.mote, size: 0.16, transparent: true, opacity: MOTE_OPACITY, depthWrite: false,
+  }));
+  const motes = new THREE.Points(moteGeo, moteMat);
   motes.frustumCulled = false;
   group.add(motes);
 
   return {
     group,
-    update(_state: GameState, timeSec: number, _dtMs: number): void {
+    update(state: GameState, timeSec: number, dtMs: number): void {
+      // Batch 8: the sky drives the species. `dayFactor` is exactly 1 by day and 0 by night; the
+      // same scalar the structures layer uses for its glows. Allocation-free: two scalars, one
+      // shared Vector3 and one Color write per frame.
+      const day = dayFactor(state);
+      const night = 1 - day;
+      // Birds and butterflies fade out through dusk and ease back at dawn: gone below
+      // `SPECIES_FADE_FROM`, scaling up smoothly (smoothstep) above it. Zero scale is invisible.
+      const raw = (day - SPECIES_FADE_FROM) / (1 - SPECIES_FADE_FROM);
+      const t = raw <= 0 ? 0 : raw >= 1 ? 1 : raw;
+      speciesScale.setScalar(t * t * (3 - 2 * t));
+
       for (let i = 0; i < BIRD_COUNT; i += 1) {
         birdPose(i, timeSec, scratch);
         mRoot.makeRotationY(scratch.heading);
         mRoot.setPosition(scratch.x, scratch.y, scratch.z);
+        mRoot.scale(speciesScale);
         bodies.setMatrixAt(i, mRoot);
         setWing(wingR, i, 0.08, scratch.flap);
         setWing(wingL, i, -0.08, -scratch.flap);
@@ -183,6 +210,7 @@ export function createAmbient(): AmbientLayer {
         flyPose(i, timeSec, scratch);
         mRoot.makeRotationY(scratch.heading);
         mRoot.setPosition(scratch.x, scratch.y, scratch.z);
+        mRoot.scale(speciesScale);
         flyBodies.setMatrixAt(i, mRoot);
         setWing(flyR, i, 0.02, scratch.flap);
         setWing(flyL, i, -0.02, -scratch.flap);
@@ -190,11 +218,20 @@ export function createAmbient(): AmbientLayer {
       flyBodies.instanceMatrix.needsUpdate = true;
       flyR.instanceMatrix.needsUpdate = true;
       flyL.instanceMatrix.needsUpdate = true;
+
+      // Motes become fireflies at night: warmer tint toward the ember, slower drift and a gentle
+      // breathe. `driftSec` integrates a speed that eases 1 → 0.6 with `night`, so there is no
+      // phase jump; at `night === 0` it advances at exactly the shipped rate. Color and opacity are
+      // lerped by the same scalar, so day restores the shipped color (`#f6e7c6`) and opacity (0.5)
+      // exactly. `transparent` was set once at build.
+      driftSec += (dtMs / 1000) * (1 - MOTE_NIGHT_SLOW * night);
+      moteMat.color.copy(moteDay).lerp(moteNight, night);
+      moteMat.opacity = MOTE_OPACITY * (1 + night * MOTE_PULSE * Math.sin(timeSec * MOTE_PULSE_RATE));
       for (let i = 0; i < MOTE_COUNT; i += 1) {
         const o = i * 3;
-        motePos[o] = (moteBase[o] ?? 0) + Math.sin(timeSec * 0.12 + (motePhase[o] ?? 0)) * 1.4;
-        motePos[o + 1] = (moteBase[o + 1] ?? 0) + Math.sin(timeSec * 0.09 + (motePhase[o + 1] ?? 0)) * 0.8;
-        motePos[o + 2] = (moteBase[o + 2] ?? 0) + Math.cos(timeSec * 0.1 + (motePhase[o + 2] ?? 0)) * 1.4;
+        motePos[o] = (moteBase[o] ?? 0) + Math.sin(driftSec * 0.12 + (motePhase[o] ?? 0)) * 1.4;
+        motePos[o + 1] = (moteBase[o + 1] ?? 0) + Math.sin(driftSec * 0.09 + (motePhase[o + 1] ?? 0)) * 0.8;
+        motePos[o + 2] = (moteBase[o + 2] ?? 0) + Math.cos(driftSec * 0.1 + (motePhase[o + 2] ?? 0)) * 1.4;
       }
       moteAttr.needsUpdate = true;
     },

@@ -5,7 +5,8 @@
 // one vertex-coloured Lambert material so even the multi-coloured kinds merge; the ghosts reuse
 // the very same geometry under the single translucent sheet, which keeps the silhouette honest.
 // Only the parts that move on their own — the pot's bowls, its steam, the garden's sprouts —
-// stay separate, as InstancedMeshes. Lantern lamps stay their own unlit mesh for the same reason.
+// stay separate, as InstancedMeshes. Lantern lamps and hut windows ride their own emissive
+// materials for the same reason — Batch 8 warms them on through dusk and night.
 //
 // A5: meals past six are readable again. The stack grows a second column beside the first, the
 // topmost bowl takes a modest size step, and the steam thickens — all pure functions of
@@ -23,11 +24,14 @@
 // pad, trunk-toned walls, a gable roof in a foliage hue and a door panel (spec Part 4). It is four
 // static parts, so it merges into the same single `solid` chunk as everything else and a hut costs
 // one draw call built and one as a ghost, with the ghost reusing those very buffers under
-// `ghostMat`. Nothing about it moves, so it adds no instanced cue and no per-frame work.
+// `ghostMat`. Nothing about it moves, so it adds no instanced cue and no per-hut per-frame work;
+// Batch 8 adds one emissive window quad that ramps with the same per-frame night scalar as the
+// lantern.
 
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { GameState, Structure, StructureKind } from '../sim';
+import { dayFactor } from '../sim';
 import { PALETTE } from './palette';
 import { createSelectionCue } from './selectionCue';
 
@@ -56,6 +60,14 @@ const STEAM_BASE = 0.55; // wisp scale at the foot of its rise
 const STEAM_GROWTH = 0.85; // extra scale gained over the full rise
 const LAMP_LIGHT = 0.5;
 const LAMP_RANGE = 6;
+/** Batch 8: the lamp globe's warm emissive (`LAMP_GLOW_COLOR`) at full night. Exactly 0 by day. */
+const LAMP_GLOW = 0.9;
+/** Batch 8: the hut window's warm emissive at full night — a touch softer than the lantern. */
+const WINDOW_GLOW = 0.85;
+const LAMP_GLOW_COLOR = '#f6d9a0';
+const WINDOW_GLOW_COLOR = '#ffd9a0';
+/** Batch 8: the window's daytime dark-glass base — muted, never pure black. */
+const WINDOW_GLASS = '#2f2c33';
 /** A5: steam widens by this much per bowl past `MEAL_STACK`. */
 const STEAM_PLUMP = 0.12;
 /** The widest the steam ever gets — at the bowl cap. `steamBounds()` is sized for exactly this. */
@@ -85,7 +97,7 @@ interface Part {
 }
 
 /** Material a chunk renders with when built. A ghost overrides every slot with `ghostMat`. */
-type Slot = 'solid' | 'lamp';
+type Slot = 'solid' | 'lamp' | 'window';
 
 /** A kind's static geometry for one material slot, shared by every model of that kind. */
 interface Chunk {
@@ -171,7 +183,14 @@ export function createStructures(): StructuresLayer {
   const solidMat = track(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true }));
   const creamMat = track(new THREE.MeshLambertMaterial({ color: PALETTE.flowerWhite }));
   const sproutMat = track(new THREE.MeshLambertMaterial({ color: PALETTE.tuftA }));
-  const lampMat = track(new THREE.MeshBasicMaterial({ color: PALETTE.sun }));
+  const lampMat = track(new THREE.MeshLambertMaterial({
+    color: PALETTE.sun, emissive: LAMP_GLOW_COLOR, emissiveIntensity: 0,
+  }));
+  // Batch 8: one shared material for every hut window — dark glass that warms with the same night
+  // scalar as the lantern. The globe is dark by day (`emissiveIntensity: 0`) and warm from dusk on.
+  const windowMat = track(new THREE.MeshLambertMaterial({
+    color: WINDOW_GLASS, emissive: WINDOW_GLOW_COLOR, emissiveIntensity: 0,
+  }));
   const steamMat = track(new THREE.MeshBasicMaterial({ color: PALETTE.mote, transparent: true, opacity: 0.32, depthWrite: false }));
   const ghostMat = track(new THREE.MeshBasicMaterial({
     color: PALETTE.flowerWhite,
@@ -300,6 +319,9 @@ export function createStructures(): StructuresLayer {
   // is normally a single `solid` chunk — only the lantern's glowing globe needs its own unlit one.
   function chunksFor(kind: StructureKind): Array<{ slot: Slot; parts: Part[] }> {
     const parts: Part[] = [];
+    // Batch 8: hut windows are the one extra chunk a kind can carry — their own emissive material,
+    // kept out of the lit `solid` merge. Null for every other kind.
+    let windows: Part[] | null = null;
     switch (kind) {
       case 'woodpile': {
         parts.push({ geo: new THREE.CylinderGeometry(0.26, 0.3, 0.18, 10), color: PALETTE.trunk, pos: [0, 0.09, 0] });
@@ -363,14 +385,27 @@ export function createStructures(): StructuresLayer {
         // The door is sunk 0.02 into the wall face rather than laid flush on it, so the panel and
         // the wall never share a plane (no z-fighting) and it still reads as a panel, not a hole.
         parts.push({ geo: new THREE.BoxGeometry(0.3, 0.4, 0.06), color: PALETTE.cauldron, pos: [0, 0.3, 0.51] });
+        // Batch 8: a small window beside the door, on the same +z front face. One plane = 2 tris,
+        // laid 0.005 proud of the wall (the door sits deeper) so it never z-fights, and born on its
+        // own emissive chunk so `update()` can warm it with the night scalar.
+        windows = [
+          { geo: new THREE.PlaneGeometry(0.22, 0.2), color: WINDOW_GLASS, pos: [0.28, 0.4, 0.505] },
+        ];
         break;
       }
     }
-    // The lamp globe is unlit so it still glows at dusk, which rules it out of the lit chunk.
+    // The lamp globe is unlit by day and warm from dusk on, which rules it out of the lit chunk.
     if (kind === 'lantern') {
       return [
         { slot: 'solid', parts },
         { slot: 'lamp', parts: [{ geo: new THREE.SphereGeometry(0.11, 10, 8), color: PALETTE.sun, pos: [0, 1.02, 0] }] },
+      ];
+    }
+    // Batch 8: a hut carries its window as a second chunk with its own material.
+    if (windows) {
+      return [
+        { slot: 'solid', parts },
+        { slot: 'window', parts: windows },
       ];
     }
     return [{ slot: 'solid', parts }];
@@ -400,7 +435,12 @@ export function createStructures(): StructuresLayer {
     const root = new THREE.Group();
     // Ghost parts never cast shadows (B5).
     for (const chunk of chunksOf(kind)) {
-      const mesh = new THREE.Mesh(chunk.geo, ghost ? ghostMat : chunk.slot === 'lamp' ? lampMat : solidMat);
+      const material = ghost
+        ? ghostMat
+        : chunk.slot === 'lamp' ? lampMat
+        : chunk.slot === 'window' ? windowMat
+        : solidMat;
+      const mesh = new THREE.Mesh(chunk.geo, material);
       mesh.castShadow = !ghost;
       root.add(mesh);
     }
@@ -452,6 +492,12 @@ export function createStructures(): StructuresLayer {
   return {
     group,
     update(state: GameState, timeSec: number): void {
+      // Batch 8: the glows are global material scalars — one write per frame, no allocations. The
+      // lamp globe and every hut window warm on through dusk and are exactly off by day
+      // (`dayFactor === 1` ⇒ `night === 0`). Both materials are shared across all instances.
+      const night = 1 - dayFactor(state);
+      lampMat.emissiveIntensity = LAMP_GLOW * night;
+      windowMat.emissiveIntensity = WINDOW_GLOW * night;
       liveIds.clear();
       const meals = Math.min(Math.max(0, state.pot.meals), MEAL_BOWLS);
       const growth = Math.min(1, Math.max(0, state.gardenMs / GARDEN_PERIOD_MS));
