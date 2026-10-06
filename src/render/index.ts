@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { GameState } from '../sim';
+import { dayFactor, type GameState } from '../sim';
 import { PALETTE } from './palette';
+import { daylightFor } from './daylight';
 import { createEnvironment, type Environment } from './environment';
 import { createAmbient, type AmbientLayer } from './ambient';
 import { createStructures, type StructuresLayer } from './structures';
@@ -66,7 +67,10 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
   renderer.setClearColor(PALETTE.sky);
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(PALETTE.fog, 30, 95);
+  // Kept as a local reference so the per-frame daylight wiring can write `fog.color` without a
+  // null-check on `scene.fog` (which is `(Fog | FogExp2) | null`).
+  const fog = new THREE.Fog(PALETTE.fog, 30, 95);
+  scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
   camera.position.set(16, 14, 16);
@@ -168,9 +172,20 @@ export function initRender(canvas: HTMLCanvasElement): RenderHandle {
         scene.add(trader.group);
       }
       const timeSec = performance.now() / 1000;
+      // Batch 8 (N3): one pure blend drives the whole sky. `daylightFor` fills a shared scratch
+      // frame — consumed here in the same frame and nowhere else before the next call, so the
+      // same-object aliasing is invisible.
+      const frame = daylightFor(dayFactor(state));
+      renderer.setClearColor(frame.sky);
+      fog.color.copy(frame.fog);
+      ambient.color.copy(frame.ambientSky);
+      ambient.groundColor.copy(frame.ambientGround);
+      ambient.intensity = frame.ambientIntensity;
+      sun.color.copy(frame.sunColor);
+      sun.intensity = frame.sunIntensity;
       // B4's Environment takes the live fire state; without it the flame falls back to the
-      // `__cozy` hook, so pass the real thing.
-      env.update(timeSec, state.fire);
+      // `__cozy` hook, so pass the real thing. `frame.night` warms the fire after dark.
+      env.update(timeSec, state.fire, frame.night);
       villagers.update(state, timeSec, dtMs);
       ambientLayer.update(state, timeSec, dtMs);
       structures.update(state, timeSec);

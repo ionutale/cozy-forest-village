@@ -5,8 +5,10 @@ import { PALETTE } from './palette';
 export interface Environment {
   group: THREE.Group;
   /** B4: live fire state. render/index.ts always passes `state.fire`; when omitted (unit tests,
-      or a caller that has no state yet) fuel falls back to a steady default. */
-  update(timeSec: number, fire?: Fire): void;
+      or a caller that has no state yet) fuel falls back to a steady default.
+      N3: `night` (0 day → 1 deep night, from `daylightFor`) warms and rounds the flame/ember glow
+      after dark; omitted or non-finite falls back to 0, so existing callers are unchanged. */
+  update(timeSec: number, fire?: Fire, night?: number): void;
   dispose(): void;
 }
 
@@ -247,7 +249,7 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
 
   return {
     group,
-    update(timeSec: number, fire?: Fire): void {
+    update(timeSec: number, fire?: Fire, night?: number): void {
       // T6 breeze: crowns tilt ≤ 0.03 rad around their base; trunks stay put. 40 crowns: trivial.
       for (let i = 0; i < crownBase.length; i += 1) {
         const c = crownBase[i]!; // guarded by the loop bound (same idiom as sim/index.ts)
@@ -264,8 +266,11 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
       // Slow two-sine flicker (±6 %), always eased — never strobing.
       if (flame && flameMat && fireLight && emberMat && warmDisc && warmDiscMat) {
         const { ratio } = resolveFire(fire);
+        // N3: the night scalar only scales the glow — `resolveFire` and every fuel rule above are
+        // untouched. A missing/non-finite value is day (0), so no existing caller changes behavior.
+        const nightK = night === undefined || !Number.isFinite(night) ? 0 : Math.min(1, Math.max(0, night));
         const flick = 0.6 * Math.sin(timeSec * TAU * 0.9) + 0.4 * Math.sin(timeSec * TAU * 1.7 + 1.3);
-        const s = (0.25 + 0.75 * ratio) * (1 + 0.06 * flick);
+        const s = (0.25 + 0.75 * ratio) * (1 + 0.06 * flick) * (1 + 0.12 * nightK);
         flame.scale.setScalar(s);
         flame.position.set(
           fireX + 0.03 * Math.sin(timeSec * TAU * 1.3 + 0.5),
@@ -273,12 +278,16 @@ export function createEnvironment(nodes: readonly ResourceNode[]): Environment {
           fireZ + 0.03 * Math.cos(timeSec * TAU * 1.1 + 2.0),
         );
         flameMat.color.lerpColors(emberCol, fireCol, ratio);
-        fireLight.intensity = (0.25 + 1.15 * ratio) * (1 + 0.06 * flick);
-        emberMat.opacity = (0.15 + 0.75 * (1 - ratio)) * (1 + 0.1 * flick);
+        // After dark the flame leans warmer (toward the fire hue) and its light and glow grow a
+        // touch, so the hearth pulls the eye through the blue hour. At `nightK 0` every factor
+        // below is exactly 1 and the lerp t is exactly 0 — the day frame is byte-identical.
+        flameMat.color.lerp(fireCol, 0.25 * nightK);
+        fireLight.intensity = (0.25 + 1.15 * ratio) * (1 + 0.06 * flick) * (1 + 0.3 * nightK);
+        emberMat.opacity = (0.15 + 0.75 * (1 - ratio)) * (1 + 0.1 * flick) * (1 + 0.2 * nightK);
         // A2: warmth breathes with the SAME flick value — radius 1.2 + 3.8·ratio,
         // opacity 0.04 + 0.06·ratio, both ±10 %. Scale/opacity writes only.
-        warmDisc.scale.setScalar((1.2 + 3.8 * ratio) * (1 + 0.1 * flick));
-        warmDiscMat.opacity = (0.04 + 0.06 * ratio) * (1 + 0.1 * flick);
+        warmDisc.scale.setScalar((1.2 + 3.8 * ratio) * (1 + 0.1 * flick) * (1 + 0.1 * nightK));
+        warmDiscMat.opacity = (0.04 + 0.06 * ratio) * (1 + 0.1 * flick) * (1 + 0.15 * nightK);
       }
     },
     dispose(): void {
