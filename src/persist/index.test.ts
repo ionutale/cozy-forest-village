@@ -2,7 +2,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEY, VERSION, clearSave, loadGame, saveGame, startAutosave } from './index';
-import { CHAIN_LENGTH, FIRST_OFFER_MS, FIRST_VISIT_MS, TRADES_PER_VISIT, createInitialState } from '../sim';
+import {
+  CHAIN_LENGTH, DAY_MS, FIRST_OFFER_MS, FIRST_VISIT_MS, FRESH_START_T, TRADES_PER_VISIT,
+  createInitialState,
+} from '../sim';
 import type { GameState } from '../sim';
 
 /** Minimal in-memory Storage fake matching the DOM Storage interface. */
@@ -38,23 +41,40 @@ function withoutArrivals(state: GameState): GameState {
   return v2;
 }
 
-/** A batch-4 (v2) save: no hut plots, no arrivals block — the v2 → v3 migration's input. */
+/** A state exactly as a pre-v5 save wrote it: no day/night clock (schema v1–v4, batch 8). */
+function withoutClock(state: GameState): GameState {
+  const old: GameState = { ...state };
+  delete (old as unknown as Record<string, unknown>).clock;
+  return old;
+}
+
+/** A batch-4 (v2) save: no hut plots, no arrivals block, no clock — the v2 → v3 input. */
 function asV2(state: GameState): GameState {
-  return withoutArrivals({
-    ...state,
-    structures: state.structures.filter((s) => s.kind !== 'hut'),
-  });
+  return withoutClock(
+    withoutArrivals({
+      ...state,
+      structures: state.structures.filter((s) => s.kind !== 'hut'),
+    }),
+  );
 }
 
 /**
- * A batch-6 (v3) save: hut plots and arrivals present, no visitor and no spices — the v3 → v4
- * migration's input (resources is copied so the delete never mutates the caller's state).
+ * A batch-6 (v3) save: hut plots and arrivals present, no visitor, no spices, no clock — the
+ * v3 → v4 migration's input (resources is copied so the delete never mutates the caller's state).
  */
 function asV3(state: GameState): GameState {
-  const v3 = { ...state, resources: { ...state.resources } };
+  const v3 = withoutClock({ ...state, resources: { ...state.resources } });
   delete (v3 as unknown as Record<string, unknown>).visitor;
   delete (v3.resources as unknown as Record<string, unknown>).spices;
   return v3;
+}
+
+/**
+ * A batch-7 (v4) save: everything the v4 schema had — spices + visitor — but no day/night clock.
+ * The v4 → v5 migration's input.
+ */
+function asV4(state: GameState): GameState {
+  return withoutClock(state);
 }
 
 /**
@@ -126,8 +146,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 round-trip with favors', () => {
-    it('saves as the current schema (v4) and restores an active favor mid-progress plus nextOfferMs', () => {
+  describe('v5 round-trip with favors', () => {
+    it('saves as the current schema (v5) and restores an active favor mid-progress plus nextOfferMs', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.favors.byVillager[0] = { step: 1, active: true, progress: 3 };
@@ -135,7 +155,7 @@ describe('persist', () => {
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
       expect(raw.version).toBe(VERSION);
-      expect(VERSION).toBe(4); // v4 = v3 + resources.spices + the trader's visitor (DESIGN §3 persist)
+      expect(VERSION).toBe(5); // v5 = v4 + the day/night clock (DESIGN §3 persist)
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
       expect(loaded).toEqual(state);
@@ -208,10 +228,12 @@ describe('persist', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       // A half-migrated blob: hut-2 missing, the others present.
-      const partial = withoutArrivals({
-        ...state,
-        structures: state.structures.filter((s) => s.id !== 'hut-2'),
-      });
+      const partial = withoutClock(
+        withoutArrivals({
+          ...state,
+          structures: state.structures.filter((s) => s.id !== 'hut-2'),
+        }),
+      );
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, state: partial }));
 
       const loaded = loadGame(storage);
@@ -231,8 +253,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v1 → v4 chained migration (Review Focus 4 + 5)', () => {
-    it('keeps the village intact and adds hut plots, an empty queue, spices and the visitor', () => {
+  describe('v1 → v5 chained migration (Review Focus 4 + 5)', () => {
+    it('keeps the village intact and adds hut plots, an empty queue, spices, the visitor and a fresh clock', () => {
       const storage = makeStorageFake();
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob() }));
 
@@ -255,13 +277,15 @@ describe('persist', () => {
       expect(huts.map((h) => h.id)).toEqual(['hut-1', 'hut-2', 'hut-3', 'hut-4']);
       expect(huts.every((h) => !h.built)).toBe(true);
       expect(loaded!.arrivals).toEqual([]);
-      // v3 → v4 half (Review Focus 5): the chain reaches schema v4 end-to-end.
+      // v3 → v4 half (Review Focus 5): the chain reaches the trader's schema end-to-end.
       expect(loaded!.visitor).toEqual({
         phase: 'away',
         inMs: FIRST_VISIT_MS,
         visitMs: 0,
         tradesLeft: 0,
       });
+      // v4 → v5 half: an ancient save wakes on a fresh morning.
+      expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
     });
 
     it('rejects a v1 roster outside [8, 12] after the chain (review I1)', () => {
@@ -273,13 +297,13 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 → v4 migration', () => {
-    it('adds spices 0 and an away visitor scheduled for the first visit, village untouched', () => {
+  describe('v3 → v5 chained migration', () => {
+    it('adds spices 0, an away visitor and a fresh clock, village untouched', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.resources.wood = 17;
       state.villagers[0]!.task = 'chop';
-      const v3 = asV3(state); // batch-6 save: huts + arrivals, no visitor, no spices
+      const v3 = asV3(state); // batch-6 save: huts + arrivals, no visitor, no spices, no clock
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: v3 }));
 
       const loaded = loadGame(storage);
@@ -292,7 +316,7 @@ describe('persist', () => {
       expect(loaded!.arrivals).toEqual([]);
       expect(loaded!.fire).toEqual(state.fire);
       expect(loaded!.pot).toEqual(state.pot);
-      // … and it gains exactly the two v4 fields.
+      // … and it gains exactly the v4 fields and the v5 clock.
       expect(loaded!.resources).toEqual({ wood: 17, berries: 0, spices: 0 });
       expect(loaded!.visitor).toEqual({
         phase: 'away',
@@ -300,6 +324,7 @@ describe('persist', () => {
         visitMs: 0,
         tradesLeft: 0,
       });
+      expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
     });
 
     it('rejects a v3 blob that fails the v3 shape check', () => {
@@ -311,7 +336,88 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 round-trip mid-visit (Review Focus 1)', () => {
+  describe('v4 → v5 migration', () => {
+    it('wakes an ancient save on a fresh morning, keeping the village intact', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.resources.wood = 17;
+      state.villagers[0]!.task = 'chop';
+      state.visitor = { phase: 'visiting', inMs: 75_000, visitMs: 45_000, tradesLeft: 1 };
+      const v4 = asV4(state); // batch-7 save: spices + visitor, no clock
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, state: v4 }));
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      // The v4 village survives untouched …
+      expect(loaded!.tick).toBe(state.tick);
+      expect(loaded!.villagers).toEqual(state.villagers);
+      expect(loaded!.resources).toEqual(state.resources);
+      expect(loaded!.visitor).toEqual(state.visitor);
+      expect(loaded!.structures).toEqual(state.structures);
+      // … and it gains exactly the v5 clock at the fresh mid-morning start.
+      expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
+    });
+
+    it('rejects a v4 blob that fails the v4 shape check', () => {
+      const storage = makeStorageFake();
+      const v4 = asV4(createInitialState());
+      delete (v4.resources as unknown as Record<string, unknown>).spices;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, state: v4 }));
+      expect(loadGame(storage)).toBeNull();
+    });
+  });
+
+  describe('v5 round-trip mid-evening (Review Focus 1)', () => {
+    it('restores dayMs exactly', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.clock.dayMs = 400_000; // mid-evening (dusk/night)
+
+      saveGame(state, storage);
+      const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
+      expect(raw.version).toBe(VERSION);
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      expect(loaded).toEqual(state);
+      expect(loaded!.clock.dayMs).toBe(400_000);
+    });
+  });
+
+  describe('v5 clock validation', () => {
+    it('returns null when the clock is missing, non-finite or out of range', () => {
+      const storage = makeStorageFake();
+      const bad: unknown[] = [
+        undefined, // clock missing entirely
+        'morning', // not a record
+        {}, // no dayMs
+        { dayMs: 'soon' }, // non-number dayMs
+        { dayMs: Number.NaN }, // NaN serializes to null → rejected
+        { dayMs: Number.POSITIVE_INFINITY }, // Infinity serializes to null → rejected
+        { dayMs: -1 }, // below the floor
+        { dayMs: DAY_MS }, // the wrap point is exclusive
+        { dayMs: DAY_MS + 1 }, // above the cycle
+      ];
+      for (const clock of bad) {
+        const state = createInitialState();
+        (state as unknown as Record<string, unknown>).clock = clock;
+        storage.setItem(STORAGE_KEY, JSON.stringify({ version: VERSION, state }));
+        expect(loadGame(storage)).toBeNull();
+      }
+    });
+
+    it('accepts both ends of the valid range', () => {
+      const storage = makeStorageFake();
+      for (const dayMs of [0, DAY_MS - 1]) {
+        const state = createInitialState();
+        state.clock.dayMs = dayMs;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toEqual(state);
+      }
+    });
+  });
+
+  describe('v5 round-trip mid-visit (Review Focus 1)', () => {
     it('restores a visiting trader exactly: countdown, elapsed visit and trades left', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -320,7 +426,7 @@ describe('persist', () => {
 
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
-      expect(raw.version).toBe(4); // WRITE is always the current schema
+      expect(raw.version).toBe(5); // WRITE is always the current schema
 
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
@@ -330,7 +436,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 visitor validation', () => {
+  describe('v5 visitor validation', () => {
     it('returns null for an invalid visitor shape', () => {
       const storage = makeStorageFake();
       const bad: unknown[] = [
@@ -370,7 +476,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 spices validation', () => {
+  describe('v5 spices validation', () => {
     it('returns null when spices is missing, non-finite or negative', () => {
       const storage = makeStorageFake();
       for (const spices of [undefined, -1, Infinity, NaN, 'pinch']) {
@@ -453,7 +559,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 round-trip with arrivals (Review Focus 1)', () => {
+  describe('v5 round-trip with arrivals (Review Focus 1)', () => {
     it("restores a villager mid-walk-in and a pending arrival's countdown exactly", () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -476,7 +582,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 arrivals validation', () => {
+  describe('v5 arrivals validation', () => {
     it('returns null when arrivals is missing or not an array', () => {
       const storage = makeStorageFake();
       for (const arrivals of [undefined, 'queue', 42, { structureId: 'hut-1' }]) {
@@ -531,7 +637,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 roster bound', () => {
+  describe('v5 roster bound', () => {
     it('returns null above the 12-villager cap', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
