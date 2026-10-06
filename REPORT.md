@@ -85,6 +85,7 @@ the user re-instructs otherwise.
 | N2 | Batch-8: persist v5 chain | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ (persist 43/43) · live: mid-dusk reload ✅ | 5/5 |
 | N3 | Batch-8: daylight pipeline | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ · 3 tests · day strip exact ✅ | 5/5 |
 | N4 | Batch-8: glows + species swap | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | live: lantern + window + fireflies ✓ · console clean | 4.5/5 |
+| N-fix | Batch-8 review fix round (I1, I2, M1, M2, M5) | ✅ complete | deepseek-v4.1-flash ×3 (parallel) | 1 | 282/282 ✅ · night re-shot ✅ | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -170,6 +171,19 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-06 — Batch-8 review fix round — 0 Critical · 2 Important · 5 Minor: 4 fixed, 2 accepted/recorded (3 parallel on deepseek)
+- **I1/I2 (Important, tests)** — the non-rest timers and two-run determinism are now pinned (work/cook
+  `progressMs` at exact periods, fed decay, deep-equal dusk runs), and the seats test can no longer
+  pass vacuously (both remedies: `runUntil` reports its predicate; explicit ring-radius asserts).
+  **M2**: `GOLDEN_ANGLE` single-sourced (`tasks.ts` export; local literal deleted).
+- **M5 (Minor, tests)** — daylight scalar monotonicity asserted; the model also caught the brief's
+  `0.675`-vs-`0.7` midpoint slip and asserted the true value.
+- **M1 (Minor)** — fireflies now genuinely gather toward the fire
+  (`×(1 − 0.5·night)` on the XZ scatter, byte-exact day restore); the night frame was re-shot.
+- **M3/M4 accepted, recorded**: the motes' day positions differ from pre-batch by a constant
+  invisible phase; the lantern globe is Lambert-shaded by day now (plan-sanctioned; day emissive 0).
+- Gates **282/282 (15 files)** · tree clean.
 
 ### 2026-10-06 — Batch-8 (day/night cycle) wave complete — 4 parallel tasks on `deepseek-v4.1-flash` (free quota exhausted)
 - **Provider saga**: the wave first went to the free roster (4× simultaneous rate-limit exhaustion),
