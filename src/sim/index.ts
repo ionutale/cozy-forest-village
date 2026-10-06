@@ -15,7 +15,7 @@ import { generateWorld } from './world';
 import {
   ARRIVAL_DISTANCE, COOK_BERRIES, COOK_CHANNEL_MS, COOK_WOOD, EAT_REST_MS,
   EDGE_SPAWN, FED_FULL_BELLY_MS, FIRE_DECAY_PER_MS, FIRE_STEADY, FED_MS, FED_WORK_PERIOD_MS,
-  FIRST_VISIT_MS, GARDEN_PERIOD_MS, HEARTY_FED_MS, HUT_PLOTS, HUT_SETTLE_MS, LOG_FUEL,
+  FIRST_VISIT_MS, GARDEN_PERIOD_MS, GOLDEN_ANGLE, HEARTY_FED_MS, HUT_PLOTS, HUT_SETTLE_MS, LOG_FUEL,
   MOVE_SPEED, NEWCOMER_CAST, NEXT_VISIT_GAP_MS, OBSTACLE_ENDGAME_RADIUS,
   STRUCTURE_ARRIVAL_DISTANCE,
   STRUCTURE_COST as STRUCTURE_COST_TABLE,
@@ -88,7 +88,6 @@ const WOODPILE_RADIUS = 2.6;
 // dusk/night an idle, taskless villager farther than DRIFT_START_DISTANCE from their warm seat
 // strolls there at DRIFT_PACE × the normal walk speed and idles on arrival; by day the check is
 // inert. `assignTask` never consults the drift, so any assignment wins in the same call.
-const WARM_SEAT_ANGLE = 2.399963; // golden angle, radians (same value as tasks.ts)
 const DRIFT_START_DISTANCE = 0.35; // "not already near their warm spot"
 const DRIFT_ARRIVAL_DISTANCE = 0.05; // a tight settle so seats land on their ring
 const DRIFT_PACE = 0.5; // ≈ half the normal walk speed
@@ -99,7 +98,7 @@ const DRIFT_PACE = 0.5; // ≈ half the normal walk speed
  * Centred on the campfire, which is always at the origin.
  */
 function warmSpot(villagerIndex: number): Vec2 {
-  const a = (villagerIndex + 0.5) * WARM_SEAT_ANGLE;
+  const a = (villagerIndex + 0.5) * GOLDEN_ANGLE;
   const r = WARMING_RADIUS + (hash01(villagerIndex, 101) - 0.5) * 0.4; // ±0.2
   return { x: Math.cos(a) * r, z: Math.sin(a) * r };
 }

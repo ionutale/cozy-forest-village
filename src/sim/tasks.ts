@@ -27,8 +27,8 @@ export const TRUNK_RADIUS = 0.42;
 export const TRUNK_CLEAR_RADIUS = TRUNK_RADIUS + 0.2; // 0.62
 /** Within this distance of the arrival point, steer direct (exact slot landings). */
 export const OBSTACLE_ENDGAME_RADIUS = 1.0;
-/** Golden angle in radians — spreads rest spots evenly and deterministically. */
-const GOLDEN_ANGLE = 2.399963;
+/** Golden angle in radians — spreads rest spots (and batch-8 warm seats) evenly and deterministically. */
+export const GOLDEN_ANGLE = 2.399963;
 
 // ── Batch 2: fire & warmth (DESIGN.md §3.2) ────────────────────────────────
 

@@ -80,3 +80,25 @@ night rests 6000/8250 vs noon 4000/5500.
 | `src/ui/derive.test.ts` | fixture-only: `clock` added to the state factory |
 | `src/ui/structure-card.test.ts` | fixture-only: `clock` added to the state factory |
 | `docs/tasks/N1-daynight-sim-report.md` | This file (new) |
+
+## Fix round — review findings I1, I2, M2
+
+- **I1 (test gap)** — `src/sim/daynight.test.ts`: added a new
+  `describe('non-rest timers & determinism (I1)')`:
+  - a table test (`it.each` chopper/cook) that settles each at `dayMs 240_000`, then pins
+    `progressMs` at exactly `WORK_PERIOD_MS - 100` / `COOK_CHANNEL_MS - 100` with **no** early
+    yield, fires the boundary tick (yield at exactly the period, `progressMs` back to 0), and
+    asserts `fedMs` decays 1:1 (`FED_MS → FED_MS - 1000` over 1000 ms) — the pre-batch
+    expectation snapshot for work/cook/fed;
+  - a determinism check: a fixed dusk scenario (seed 7, `dayMs 400_000`, a chopper + a resting
+    eater + idle drifters, 400 ticks) produced twice is `toEqual`-identical.
+- **I2 (vacuous seats test)** — `runUntil` now returns whether its predicate fired (`boolean`);
+  the "seats never overlap" test captures the result, asserts `reached === true`, then asserts
+  each villager's `Math.hypot(...) < 2.8` (genuinely on the ring) before the `> 0.5` distance
+  check — a no-drift run (both stuck at ±8,8) now fails instead of passing.
+- **M2 (duplicated constant)** — exported `GOLDEN_ANGLE` from `src/sim/tasks.ts` and imported it
+  in `src/sim/index.ts` (the local `WARM_SEAT_ANGLE = 2.399963` literal is deleted; `warmSpot`
+  reads `GOLDEN_ANGLE`). One owner for the binding golden angle.
+
+Fix-round verification: `pnpm exec tsc --noEmit` clean; `pnpm build` ✓; `pnpm test` **282/282,
+15 files** green (278 pre-fix + 3 N1 additions + 1 concurrent render addition).

@@ -9,20 +9,29 @@ import {
   DAY_MS,
   FRESH_START_T,
   assignTask,
+  buildStructure,
   createInitialState,
   dayFactor,
   dayPhase,
   dayT,
   tick,
 } from './index';
+import { COOK_CHANNEL_MS, FED_MS, WORK_PERIOD_MS } from './tasks';
 
-/** Ticks until `predicate` holds or the budget is exhausted. */
-function runUntil(state: GameState, predicate: () => boolean, maxMs: number, stepMs: number): void {
+/** Ticks the sim forward in fixed steps. */
+function run(state: GameState, totalMs: number, stepMs: number): void {
+  const steps = Math.round(totalMs / stepMs);
+  for (let i = 0; i < steps; i += 1) tick(state, stepMs);
+}
+
+/** Ticks until `predicate` holds (returns true) or the budget is exhausted (returns false). */
+function runUntil(state: GameState, predicate: () => boolean, maxMs: number, stepMs: number): boolean {
   const maxSteps = Math.round(maxMs / stepMs);
   for (let i = 0; i < maxSteps; i += 1) {
     tick(state, stepMs);
-    if (predicate()) return;
+    if (predicate()) return true;
   }
+  return false;
 }
 
 describe('clock advance & the fresh start', () => {
@@ -110,7 +119,7 @@ describe('gathering drift', () => {
     b.pos = { x: -8, z: -8 };
     b.state = 'idle';
     b.task = null;
-    runUntil(
+    const reached = runUntil(
       st,
       () =>
         a.state === 'idle' &&
@@ -120,8 +129,13 @@ describe('gathering drift', () => {
       40_000,
       50,
     );
+    // I2: prove the walk actually happened before trusting the distance check — if the drift
+    // never fired, both would still sit at (8,8) / (-8,-8) and only the vacuous `> 0.5` would hold.
+    expect(reached).toBe(true);
     expect(a.state).toBe('idle');
     expect(b.state).toBe('idle');
+    expect(Math.hypot(a.pos.x, a.pos.z)).toBeLessThan(2.8); // a reached the ring
+    expect(Math.hypot(b.pos.x, b.pos.z)).toBeLessThan(2.8); // b reached the ring
     expect(Math.hypot(a.pos.x - b.pos.x, a.pos.z - b.pos.z)).toBeGreaterThan(0.5);
   });
 
@@ -189,5 +203,68 @@ describe('evening rest stretch', () => {
     assignTask(dayMeal, dm.id, 'rest');
     runUntil(dayMeal, () => dm.state === 'resting', 10_000, 50);
     expect(dm.restMs).toBe(5500);
+  });
+});
+
+// I1: Review-Focus pin 3 also promises the *non-rest* timers are byte-identical and that the
+// drift is deterministic across identical runs. Both are safe by construction (restScale is
+// exactly 1 by day and only the three restMs sites were touched), but the pin must live in a
+// test so a future edit to the shared walk() path cannot regress work/cook/fed unnoticed.
+describe('non-rest timers & determinism (I1)', () => {
+  it.each([
+    { label: 'chopper', task: 'chop' as const, period: WORK_PERIOD_MS },
+    { label: 'cook', task: 'cook' as const, period: COOK_CHANNEL_MS },
+  ])('$label settles at noon and its channel climbs at exactly $period ms (fedMs decays 1:1)', ({ task, period }) => {
+    const state = createInitialState();
+    state.clock.dayMs = 240_000; // noon: the batch's day path
+    state.resources.wood = 100;
+    state.resources.berries = 100;
+    expect(buildStructure(state, 'pot')).toBe(true); // cook needs a built pot
+    const v = state.villagers[0]!;
+    assignTask(state, v.id, task);
+    expect(runUntil(state, () => v.state === 'working', 20_000, 50)).toBe(true);
+    expect(v.state).toBe('working');
+
+    // The channel timer itself: exactly one step short of a yield, nothing has landed.
+    v.progressMs = 0;
+    v.fedMs = 0; // pin the un-fed period
+    const before = { ...state.resources };
+    run(state, period - 100, 100);
+    expect(v.progressMs).toBe(period - 100);
+    expect(state.resources).toEqual(before); // no early yield
+    tick(state, 100); // the period boundary
+    expect(v.progressMs).toBe(0); // the yield consumed exactly the period
+    if (task === 'chop') {
+      expect(state.resources.wood).toBe(before.wood + 1);
+      expect(state.events.some((e) => e.type === 'chop')).toBe(true);
+    } else {
+      expect(state.pot.meals).toBe(1);
+      expect(state.resources.berries).toBe(before.berries - 3);
+      expect(state.resources.wood).toBe(before.wood - 1);
+      expect(state.events.some((e) => e.type === 'meal-cooked')).toBe(true);
+    }
+
+    // fedMs still decays 1:1 with dt (the batch touched no fed/walk timer).
+    v.fedMs = FED_MS;
+    run(state, 1000, 100);
+    expect(v.fedMs).toBe(FED_MS - 1000);
+  });
+
+  it('a fixed dusk scenario is byte-identical across two runs', () => {
+    // Same seed, same ticks, same dusk inputs → deep-equal states. Exercises the drift, the
+    // 1.5× rest stretch and the work channel interleaving with no wall-clock anywhere.
+    const scenario = (): GameState => {
+      const st = createInitialState(7);
+      st.clock.dayMs = 400_000; // dusk
+      st.resources.wood = 40;
+      st.resources.berries = 40;
+      st.pot.meals = 1;
+      st.fire.fuel = 80;
+      assignTask(st, st.villagers[0]!.id, 'chop');
+      assignTask(st, st.villagers[1]!.id, 'rest');
+      for (let i = 0; i < 400; i += 1) tick(st, 50); // 20 s at dusk
+      return st;
+    };
+    expect(scenario()).toEqual(scenario());
   });
 });
