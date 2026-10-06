@@ -91,3 +91,22 @@ Re-ran after ~75 s and ~90 s waits until N1's UI fixture repair cleared the last
    tint +25 % toward fire). Gently stronger after dark; all tuned live.
 4. **Same-object scratch** is the one sharp edge: any future caller that stores the returned frame
    across a second `daylightFor` call will see mutated values. Documented at the top of the module.
+
+## Fix round — review finding M5 (scalar monotonicity)
+
+`docs/tasks/N-review-report.md` M5: `daylightFor`'s `ambientIntensity` / `sunIntensity` (pure `mix()`
+outputs) were only pinned at the `dayFactor 1` endpoint, with no monotonicity assertion. Added one
+case to `src/render/daylight.test.ts` ("scalar intensities rise strictly and never overshoot"):
+
+- exact midpoints via `toBeCloseTo(…, 6)` — `ambientIntensity` `0.55 → 0.675 → 0.8`,
+  `sunIntensity` `0.95 → 1.275 → 1.6`;
+- strict increase across `0 < 0.5 < 1` for both;
+- a no-overshoot guard sampling `t ∈ {0.25, 0.5, 0.75}` and asserting each scalar stays inside its
+  endpoint bracket.
+
+**One correction to the fix brief:** it quoted `ambientIntensity` midpoint `0.7`, but the arithmetic
+mean of `0.55` and `0.8` is `0.675`, which is what `mix()` returns (the brief's `sunIntensity` mean,
+`1.275`, is correct). The test asserts the true value; a `0.7` literal would have failed by `0.025`.
+
+Gate re-run: `pnpm exec tsc --noEmit` clean · `pnpm build` clean · `pnpm test` **279/279, 15 files**
+(the 278 baseline plus this one new case).

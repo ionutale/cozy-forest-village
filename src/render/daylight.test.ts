@@ -56,4 +56,37 @@ describe('daylightFor — monotonic blend', () => {
       expect(mid[key]).toBeGreaterThan(twilight[key]);
     }
   });
+
+  it('scalar intensities rise strictly and never overshoot', () => {
+    // `mix()` is linear, so the 0.5 midpoints are the arithmetic means of the two strips:
+    // `ambientIntensity` 0.55 → 0.675 → 0.8, `sunIntensity` 0.95 → 1.275 → 1.6. (The fix brief
+    // quoted 0.7 for the ambient midpoint; that is not the mean of 0.55 and 0.8 — the true value
+    // is 0.675, and the other midpoint, 1.275, matches the brief exactly.)
+    const sample = (dayFactor: number) => {
+      const f = daylightFor(dayFactor); // read the aliased scratch into primitives immediately
+      return { ambient: f.ambientIntensity, sun: f.sunIntensity };
+    };
+    const twilight = sample(0);
+    const mid = sample(0.5);
+    const day = sample(1);
+    expect(twilight.ambient).toBeCloseTo(0.55, 6);
+    expect(mid.ambient).toBeCloseTo(0.675, 6);
+    expect(day.ambient).toBeCloseTo(0.8, 6);
+    expect(twilight.sun).toBeCloseTo(0.95, 6);
+    expect(mid.sun).toBeCloseTo(1.275, 6);
+    expect(day.sun).toBeCloseTo(1.6, 6);
+    // Strict increase across 0 < 0.5 < 1.
+    expect(mid.ambient).toBeGreaterThan(twilight.ambient);
+    expect(day.ambient).toBeGreaterThan(mid.ambient);
+    expect(mid.sun).toBeGreaterThan(twilight.sun);
+    expect(day.sun).toBeGreaterThan(mid.sun);
+    // No-overshoot guard: a linear blend stays inside its endpoint bracket at every sampled t.
+    for (const t of [0.25, 0.5, 0.75]) {
+      const f = daylightFor(t);
+      expect(f.ambientIntensity).toBeGreaterThanOrEqual(0.55);
+      expect(f.ambientIntensity).toBeLessThanOrEqual(0.8);
+      expect(f.sunIntensity).toBeGreaterThanOrEqual(0.95);
+      expect(f.sunIntensity).toBeLessThanOrEqual(1.6);
+    }
+  });
 });
