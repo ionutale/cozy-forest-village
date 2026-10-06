@@ -241,6 +241,20 @@ to { opacity: 1; transform: translateY(0); }
 
 .popover-title { margin: 0; font-size: 13px; font-weight: 800; color: var(--ink-soft); }
 
+/* Batch 9 (bonds): the popover's Bonds line — the same quiet panel register as the favor line
+   above it, reserving one line so a first bond never jumps the task grid. Empty text leaves the
+   slot invisible; the data-face rule below removes it entirely on the structure and trader faces. */
+.bonds-line { margin: 0; min-height: 1.4em; color: var(--ink-soft); font-size: 12.5px; font-weight: 600; }
+
+.bonds-line:empty { visibility: hidden; }
+
+/* Batch 9 (bonds): the close-friend heart on a card row — the requester heart's twin at the
+   card's single accent, sitting on the name line. `inline-block` lets it flow with the name;
+   the explicit [hidden] rule keeps the attribute in charge of visibility (the favor-heart rule). */
+.bond-heart { display: inline-block; color: var(--accent); }
+
+.bond-heart[hidden] { display: none; }
+
 .task-btn {
   padding: 8px 6px;
   font: inherit;
@@ -310,6 +324,10 @@ to { opacity: 1; transform: translateY(0); }
    deliberately untouched. */
 #task-popover[data-face='trader'] .task-grid,
 #task-popover[data-face='trader'] .favor-line { display: none; }
+
+/* Batch 9 (bonds): the Bonds line belongs to the villager face only — the structure face keeps
+   the task grid (pre-existing) but never the villager's friends. */
+#task-popover:not([data-face='villager']) .bonds-line { display: none; }
 
 /* T3: the trader face of the popover — same zone, same panel register as the task grid and the
    structure card. Stacked rather than gridded: two exchanges read as a short list, and the

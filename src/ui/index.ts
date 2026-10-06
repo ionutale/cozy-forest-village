@@ -11,7 +11,7 @@
 import type { GameState, Structure, TaskId } from '../sim';
 import { appendCards, buildCards, cancelHeartPulse, syncCards, type CardParts } from './cards';
 import {
-  DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, favorPopoverLine, fireState,
+  DEFAULT_HINT, STRUCTURE_NAMES, THANK_YOU_MS, bondsLine, favorPopoverLine, fireState,
   firstFavorDoneVillagerId, hintRecomputeDue, tradeDisabled, villageLine,
 } from './derive';
 import { bindRefs, uiMarkup } from './markup';
@@ -63,7 +63,7 @@ const HINT_INTERVAL_MS = 10000;
 export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
   root.innerHTML = uiMarkup();
   const refs = bindRefs(root);
-  const { list, popover, popoverTitle, panelHint, taskGrid, stopBtn, cookBtn, resetBtn, fuelPill, favorLine } = refs;
+  const { list, popover, popoverTitle, panelHint, taskGrid, stopBtn, cookBtn, resetBtn, fuelPill, favorLine, bondsLineEl } = refs;
   const card = createStructureCard(refs);
 
   const cards = new Map<string, CardParts>();
@@ -430,6 +430,13 @@ export function initUI(root: HTMLElement, actions: UIActions): UIHandle {
       if (favorLine.textContent !== (popoverFavor ?? '')) favorLine.textContent = popoverFavor ?? '';
       const favorVisibility = popoverFavor !== null ? 'visible' : 'hidden';
       if (favorLine.style.visibility !== favorVisibility) favorLine.style.visibility = favorVisibility;
+
+      // Batch 9 (bonds): the popover's Bonds line for the selected villager, synced every frame
+      // like the favor line — a level crossing or a partner joining/leaving updates it without a
+      // re-render trigger. Empty when nobody is selected or the strongest bond is level 0; the
+      // villager face owns the line (the data-face switch hides it for structure/trader).
+      const bondsText = selectedIndex >= 0 ? bondsLine(state, state.villagers[selectedIndex]!.id) ?? '' : '';
+      if (bondsLineEl.textContent !== bondsText) bondsLineEl.textContent = bondsText;
 
       const now = performance.now();
       // Batch 4 thank-you window: a `favor-done` opens THANK_YOU_MS of "is delighted!" in the

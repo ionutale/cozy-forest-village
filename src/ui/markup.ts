@@ -69,6 +69,7 @@ export function uiMarkup(): string {
       <div id="task-popover" data-face="none" hidden>
         <p class="popover-title"></p>
         <p class="favor-line" style="margin:0; min-height:2.4em; color:var(--ink-soft); font-size:12.5px; font-weight:600; visibility:hidden"></p>
+        <p class="bonds-line"></p>
         <div class="task-grid">
           ${TASK_ORDER.map(
             (task) =>
@@ -105,6 +106,8 @@ export interface UiRefs {
   popoverTitle: HTMLElement;
   /** Batch 4: the popover's reserved favor line (visibility-toggled, never display-toggled). */
   favorLine: HTMLElement;
+  /** Batch 9 (bonds): the popover's Bonds line, above the task grid in the villager face. */
+  bondsLineEl: HTMLElement;
   panelHint: HTMLElement;
   taskGrid: HTMLElement;
   stopBtn: HTMLButtonElement;
@@ -143,6 +146,7 @@ export function bindRefs(root: HTMLElement): UiRefs {
     popover: must<HTMLElement>(root, '#task-popover'),
     popoverTitle: must<HTMLElement>(root, '.popover-title'),
     favorLine: must<HTMLElement>(root, '.favor-line'),
+    bondsLineEl: must<HTMLElement>(root, '.bonds-line'),
     panelHint: must<HTMLElement>(root, '.panel-hint'),
     taskGrid: must<HTMLElement>(root, '.task-grid'),
     stopBtn: must<HTMLButtonElement>(root, '.stop-btn'),

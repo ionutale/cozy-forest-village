@@ -3,7 +3,15 @@
 // (see ./derive.test.ts). The UI layer owns when to call them and what to do with the result.
 
 import type { FavorWant, GameState, SimEvent, StructureKind, TaskId, Villager } from '../sim';
-import { GARDEN_PERIOD_MS, TRADE_BERRY_COST, TRADE_WOOD_COST, TRADE_WOOD_YIELD, favorWantFor } from '../sim';
+import {
+  GARDEN_PERIOD_MS,
+  TRADE_BERRY_COST,
+  TRADE_WOOD_COST,
+  TRADE_WOOD_YIELD,
+  bondPartners,
+  favorWantFor,
+  strongestBondLevel,
+} from '../sim';
 
 /** Batch 4: UI-side "delighted!" window after a `favor-done` event (DESIGN §3.2; no sim state). */
 export const THANK_YOU_MS = 6000;
@@ -365,6 +373,34 @@ export function favorPopoverLine(state: GameState, villagerIndex: number): strin
   if (!active) return null;
   const name = state.villagers[villagerIndex]?.name ?? '';
   return `Favor: ${favorText(active.want, name)} ${favorProgressText(active.want, active.progress)}`;
+}
+
+/**
+ * Batch 9 (bonds): the words each level reads as, in the popover's Bonds slot. Level 1 is the
+ * quietest (still just warming), level 3 the warmest; the phrasing is binding (spec Part 2).
+ */
+const BOND_WORDS: Record<1 | 2 | 3, string> = {
+  1: 'Warming to',
+  2: 'Close with',
+  3: 'Best with',
+};
+
+/**
+ * Batch 9 (bonds): the popover's Bonds line — the two strongest partners for one villager,
+ * `"Best with Fern · Close with Moss"`, joined by ` · `. `bondPartners` already returns them
+ * ordered (level desc, score desc, roster index asc), so the top two are simply the first two.
+ * Null when the strongest bond is level 0, which is the same condition the popover uses to hide
+ * the line (spec Part 2: "hidden when the strongest bond is 0"). Pure — the unit test walks the
+ * ordering and every wording.
+ */
+export function bondsLine(state: GameState, villagerId: string): string | null {
+  if (strongestBondLevel(state, villagerId) === 0) return null;
+  const partners = bondPartners(state, villagerId);
+  if (partners.length === 0) return null;
+  return partners
+    .slice(0, 2)
+    .map((partner) => `${BOND_WORDS[partner.level]} ${partner.name}`)
+    .join(' · ');
 }
 
 /** Popover title for a structure card. Both lanterns share a name; their ids stay distinct. */

@@ -12,6 +12,7 @@ import {
   THANK_YOU_MS,
   TRADE_LABELS,
   TRADER_HINT,
+  bondsLine,
   cardLabel,
   delightText,
   favorLine,
@@ -56,6 +57,21 @@ function favors(entries: Array<Partial<FavorProgress>> = [], nextOfferMs = 0): G
   };
 }
 
+/**
+ * Batch 9 (bonds): a `BondsState` from sparse `[a, b, score]` pair overrides. The pair table is
+ * row-major 12×12 with only the `i < j` cell written (spec §1.1), so a pair `(a, b)` maps to
+ * `min(a,b) * 12 + max(a,b)`. Both arrays default to zeroed, matching `createInitialState`.
+ */
+function bonds(entries: Array<[number, number, number]> = []): GameState['bonds'] {
+  const scores = new Array<number>(144).fill(0);
+  for (const [a, b, score] of entries) {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    scores[lo * 12 + hi] = score;
+  }
+  return { scores, gapMs: new Array<number>(144).fill(0) };
+}
+
 function state(over: Partial<GameState> = {}): GameState {
   return {
     tick: 0,
@@ -77,6 +93,9 @@ function state(over: Partial<GameState> = {}): GameState {
     // N1 added `clock` (batch 8 day/night cycle); the fixture defaults to a fresh mid-morning,
     // matching createInitialState. No derivation reads it yet, so no expectation changes.
     clock: { dayMs: DAY_MS * FRESH_START_T },
+    // Bonds (batch 9): the pair table K1 adds to GameState; zeroed by default, like a fresh
+    // village, so every existing fixture reads "no bonds" and no expectation moves.
+    bonds: bonds(),
     ...over,
   };
 }
@@ -876,5 +895,54 @@ describe('potHeartySuffix — the pot line suffix (T3)', () => {
     expect(potHeartySuffix(state({ structures: POT_BUILT, resources: { wood: 0, berries: 0, spices: 2 } }))).toMatch(
       /^ · /,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Batch 9 (bonds): the popover's Bonds line.
+// ---------------------------------------------------------------------------
+
+describe('bondsLine — the popover Bonds line (batch 9)', () => {
+  const NAMES = ['Maple', 'Birch', 'Fern', 'Pip', 'Hazel'];
+
+  /** The subject is always roster index 0 (`v1`); the pairs below are its bonds. */
+  function village(entries: Array<[number, number, number]>): GameState {
+    return state({
+      villagers: NAMES.map((name, i) => villager(`v${i + 1}`, { name })),
+      bonds: bonds(entries),
+    });
+  }
+
+  it('orders the top two by level, then score, then roster index', () => {
+    // Level outranks score: the level-3 partner (index 1, 720) is first even though index 2
+    // carries the next-highest score. Then score desc, then index asc for the rest.
+    const ordered = village([
+      [0, 3, 300],
+      [0, 4, 300],
+      [0, 2, 400],
+      [0, 1, 720],
+    ]);
+    expect(bondsLine(ordered, 'v1')).toBe('Best with Birch · Close with Fern');
+
+    // Equal level and equal score → roster index ascending breaks the tie.
+    const tied = village([[0, 4, 300], [0, 3, 300]]);
+    expect(bondsLine(tied, 'v1')).toBe('Close with Pip · Close with Hazel');
+
+    // Equal level, differing score → the higher score comes first, whatever the index.
+    const scored = village([[0, 3, 300], [0, 2, 400]]);
+    expect(bondsLine(scored, 'v1')).toBe('Close with Fern · Close with Pip');
+  });
+
+  it('words each level: Warming to / Close with / Best with', () => {
+    expect(bondsLine(village([[0, 1, 120]]), 'v1')).toBe('Warming to Birch');
+    expect(bondsLine(village([[0, 1, 300]]), 'v1')).toBe('Close with Birch');
+    expect(bondsLine(village([[0, 1, 720]]), 'v1')).toBe('Best with Birch');
+  });
+
+  it('hides below level 1, and shows a warming-only bond', () => {
+    expect(bondsLine(village([]), 'v1')).toBeNull();
+    // 119 is one point short of the warming threshold (120) — still no bond.
+    expect(bondsLine(village([[0, 1, 119]]), 'v1')).toBeNull();
+    expect(bondsLine(village([[0, 1, 120]]), 'v1')).toBe('Warming to Birch');
   });
 });

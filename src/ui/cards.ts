@@ -3,6 +3,7 @@
 // heart's goodbye pulse (G3) is transition-started and timer-ended, never per-frame.
 
 import type { GameState, Villager } from '../sim';
+import { strongestBondLevel } from '../sim';
 import { cardLabel, villagersNeedingCards } from './derive';
 import { HEART_ICON, must } from './markup';
 
@@ -14,10 +15,14 @@ export interface CardParts {
   label: HTMLElement;
   /** Batch 4: the requester heart, visibility-toggled on transitions below. */
   heart: HTMLElement;
+  /** Batch 9 (bonds): the close-friend heart mark, toggled in the per-frame sync below. */
+  bondHeart: HTMLElement;
   /** A1: last rendered fed state, so the well-fed class is only touched on a transition. */
   fed: boolean;
   /** Batch 4: last rendered favor state, same transition-only guard. */
   favor: boolean;
+  /** Batch 9: last rendered close-friend state, same transition-only guard. */
+  bond: boolean;
   /** G3: pending hide for the goodbye pulse; null when no pulse is in flight. */
   heartPulseTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -27,7 +32,7 @@ export interface CardParts {
 function cardHtml(v: Villager): string {
   return `<button class="villager-card lift" type="button" data-villager-id="${v.id}">
             <span class="hat-dot"></span>
-            <span class="villager-name">${v.name}<span class="favor-heart" title="Has a favor to ask" style="color:var(--accent);margin-left:5px;vertical-align:-1px" hidden>${HEART_ICON}</span></span>
+            <span class="villager-name">${v.name}<span class="favor-heart" title="Has a favor to ask" style="color:var(--accent);margin-left:5px;vertical-align:-1px" hidden>${HEART_ICON}</span><span class="bond-heart" title="Has a close friend" style="margin-left:4px;vertical-align:-1px" hidden>${HEART_ICON}</span></span>
             <span class="task-label">${cardLabel(v)}</span>
           </button>`;
 }
@@ -45,8 +50,10 @@ function registerCard(
     card,
     label: must<HTMLElement>(card, '.task-label'),
     heart: must<HTMLElement>(card, '.favor-heart'),
+    bondHeart: must<HTMLElement>(card, '.bond-heart'),
     fed: false,
     favor: false,
+    bond: false,
     heartPulseTimer: null,
   });
   must<HTMLElement>(card, '.hat-dot').style.background = v.hatColor;
@@ -132,6 +139,15 @@ export function syncCards(cards: Map<string, CardParts>, state: GameState): void
     if (parts.fed !== fed) {
       parts.fed = fed;
       parts.label.classList.toggle('well-fed', fed);
+    }
+    // Batch 9 (bonds): the close-friend heart mark. Read from the derived level *in this
+    // per-frame sync*, not in `cardHtml`, so a crossing (score hitting the level-2 threshold)
+    // appears on the next frame without any re-render trigger — the same reason the fed tint
+    // lives here. Transition-guarded like the rest of the card.
+    const bond = strongestBondLevel(state, villager.id) >= 2;
+    if (parts.bond !== bond) {
+      parts.bond = bond;
+      parts.bondHeart.hidden = !bond;
     }
     // Batch 4 requester heart: `active` is sim state, but the DOM write is transition-only,
     // exactly like the well-fed tint — an idle frame with no favor never touches the heart.
