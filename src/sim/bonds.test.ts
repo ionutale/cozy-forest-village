@@ -20,6 +20,7 @@ import {
   tick,
 } from './index';
 import { pairIndex, stepBonds } from './bonds';
+import { FED_WORK_PERIOD_MS } from './tasks';
 import { tickFavors } from './favors';
 
 /** Ticks the sim forward in fixed steps. */
@@ -78,13 +79,21 @@ describe('bonds — growth', () => {
     expect(far.bonds.gapMs[pairIndex(0, 1)]).toBeCloseTo(10_000, 9);
   });
 
-  it('the radial boundary is inclusive at 3.0: 2.999 accrues, 3.001 does not', () => {
+  it('the radial boundary is inclusive at 3.0: 2.999 / 3.0 accrue, 3.001 does not', () => {
     const inside = placed([
       [0, 0],
       [2.999, 0],
     ]);
     tick(inside, 1000);
     expect(inside.bonds.scores[pairIndex(0, 1)]).toBeCloseTo(1, 9);
+
+    // Exactly 3.0 is the boundary: `dx*dx + dz*dz <= reachSq` is inclusive.
+    const boundary = placed([
+      [0, 0],
+      [3.0, 0],
+    ]);
+    tick(boundary, 1000);
+    expect(boundary.bonds.scores[pairIndex(0, 1)]).toBeCloseTo(1, 9);
 
     const outside = placed([
       [0, 0],
@@ -209,6 +218,31 @@ describe('bonds — reunions', () => {
     expect(state.events.filter((e) => e.type === 'bond-reunion')).toHaveLength(1);
     expect(BOND_REUNION_GAP_MS).toBe(90_000);
   });
+
+  it('a single giant tick emits exactly one reunion, never a burst', () => {
+    const state = placed([
+      [0, 0],
+      [2.0, 0],
+    ]);
+    const idx = pairIndex(0, 1);
+    // Apart long enough to arm the reunion.
+    state.villagers[1]!.pos = { x: 50, z: 0 };
+    run(state, BOND_REUNION_GAP_MS + 1000, 1000);
+    expect(state.bonds.gapMs[idx]).toBeGreaterThan(BOND_REUNION_GAP_MS);
+
+    // One enormous tick while near: the near branch runs once, so exactly one.
+    state.villagers[1]!.pos = { x: 2.0, z: 0 };
+    state.clock.dayMs = DAY_MS * 0.25; // keep the drift inert / the position final
+    tick(state, 200_000);
+    expect(state.events.filter((e) => e.type === 'bond-reunion')).toEqual([
+      { type: 'bond-reunion', villagerId: 'v1', otherId: 'v2' },
+    ]);
+    expect(state.bonds.gapMs[idx]).toBe(0);
+
+    // Another near tick → none.
+    tick(state, 1000);
+    expect(state.events.filter((e) => e.type === 'bond-reunion')).toHaveLength(0);
+  });
 });
 
 describe('bonds — the work perk', () => {
@@ -273,6 +307,101 @@ describe('bonds — the work perk', () => {
     tick(idle, 5000);
     expect(idle.resources.wood).toBe(0);
     expect(idleV.progressMs).toBe(0);
+  });
+
+  /**
+   * I1: an *active* perk must leave every other timer alone. One village runs a
+   * working close pair alongside a cook and a rester on live fire/clock; the
+   * friend's distance is the only knob (1.5 u → perk on, 50 u → perk off).
+   * Same seed, same ticks, everything but the perk's own outputs must match.
+   */
+  function perkScenario(friendDist: number): GameState {
+    const state = placed([
+      [0, 0], // v1 — the perk worker (chop)
+      [friendDist, 0], // v2 — the close friend (idle)
+      [-4, 0], // v3 — the cook
+      [-6, 0], // v4 — the rester
+    ]);
+    state.resources.wood = 100;
+    state.resources.berries = 100;
+    const worker = state.villagers[0]!;
+    const friend = state.villagers[1]!;
+    const cook = state.villagers[2]!;
+    const rester = state.villagers[3]!;
+    worker.state = 'working';
+    worker.task = 'chop';
+    worker.progressMs = 0;
+    friend.state = 'idle';
+    friend.task = null;
+    cook.state = 'working';
+    cook.task = 'cook';
+    cook.progressMs = 0;
+    rester.state = 'resting';
+    rester.task = 'rest';
+    rester.progressMs = 0;
+    rester.restMs = 100_000;
+    // fedMs decay is on every villager; keep every belly well-fed for the run.
+    worker.fedMs = 60_000;
+    cook.fedMs = 60_000;
+    rester.fedMs = 60_000;
+    // v1 ⇄ v2 is the only bond: seeded at "close" (level 2).
+    state.bonds.scores[pairIndex(0, 1)] = 300;
+    return state;
+  }
+
+  /** Neutralize the perk's own outputs so the rest of the state must match. */
+  function normalizedForPerk(state: GameState): unknown {
+    const clone = JSON.parse(JSON.stringify(state)) as GameState;
+    // The perk changes only the worker's accumulator and the wood its extra
+    // chop yields bank.
+    clone.villagers[0]!.progressMs = 0;
+    clone.resources.wood = 0;
+    // The friend's position is the control knob (it drives only the bonds
+    // table, the mechanism under test — never a timer).
+    clone.villagers[1]!.pos = { x: 0, z: 0 };
+    clone.bonds = { scores: [], gapMs: [] };
+    // Worker yields and bond transitions are the expected event-level deltas.
+    clone.events = clone.events.filter(
+      (e) =>
+        !(
+          (e.type === 'chop' && e.villagerId === 'v1') ||
+          e.type === 'bond-up' ||
+          e.type === 'bond-reunion'
+        ),
+    );
+    return clone;
+  }
+
+  it('leaves every other timer byte-identical while the perk is active', () => {
+    const on = perkScenario(1.5); // perk on
+    const off = perkScenario(50); // perk off: the same friend, far away
+    run(on, 9000, 50);
+    run(off, 9000, 50);
+
+    // The timers the review names, pinned explicitly.
+    expect(on.clock.dayMs).toBe(off.clock.dayMs);
+    expect(on.fire.fuel).toBe(off.fire.fuel);
+    for (let i = 0; i < on.villagers.length; i += 1) {
+      expect(on.villagers[i]!.fedMs, `fedMs ${i}`).toBe(off.villagers[i]!.fedMs);
+    }
+    // Cook channel + meal ledger.
+    expect(on.villagers[2]!.progressMs).toBe(off.villagers[2]!.progressMs);
+    expect(on.pot.meals).toBe(off.pot.meals);
+    // Rest duration + rest accumulator.
+    expect(on.villagers[3]!.restMs).toBe(off.villagers[3]!.restMs);
+    expect(on.villagers[3]!.progressMs).toBe(off.villagers[3]!.progressMs);
+
+    // Everything else — every villager field, every other timer — in one deep
+    // compare; only the perk's own two outputs and the control knob differ.
+    expect(normalizedForPerk(on)).toEqual(normalizedForPerk(off));
+
+    // The perk's whole accounting delta: the worker landed exactly the extra
+    // chops its shorter period allows, and banked exactly that much wood.
+    const expectedSurplus =
+      Math.floor(9000 / (FED_WORK_PERIOD_MS * FRIEND_PERK_SCALE)) -
+      Math.floor(9000 / FED_WORK_PERIOD_MS);
+    expect(expectedSurplus).toBeGreaterThan(0);
+    expect(on.resources.wood - off.resources.wood).toBe(expectedSurplus);
   });
 });
 

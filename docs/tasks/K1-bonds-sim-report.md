@@ -86,6 +86,7 @@ the letter; no DESIGN.md edits).
 `bondLevelFor(state, a, b)` now takes villager **ids** (`string`), matching its sibling helpers and
 the DESIGN §3 surface now that the amendment has landed. Both ids resolve through the existing ≤12
 linear `indexOf`; the old index-based logic is the private `bondLevelAtIndex` primitive kept for
-`strongestBondLevel` / `bondPartners` / `hasCloseFriendNear` / `stepBonds`. Tests updated to pass
+`strongestBondLevel` / `bondPartners` / `hasCloseFriendNear` (the sim's `stepBonds` does not call it
+— it inlines `levelOfScore(bonds.scores[idx] ?? 0)` directly). Tests updated to pass
 ids (self id and an unknown id both read 0). Gate re-run: `tsc` clean · `build` ✓ · **309/309, 16
 files** green.
