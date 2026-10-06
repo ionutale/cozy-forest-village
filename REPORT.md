@@ -178,6 +178,16 @@ a 3D highlight for the selected structure.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
 
+### 2026-10-06 — Deployed to production — GitHub Pages
+- Public repo: **github.com/ionutale/cozy-forest-village** (full 9-batch history). Pushed via SSH —
+  the `gh` OAuth token lacks the `workflow` scope, so HTTPS pushes of workflow files are rejected;
+  SSH is the reliable path for this repo.
+- Pages (workflow build) enabled via the API; `.github/workflows/deploy.yml` ran **green in 39 s**.
+  Every future push to `master` auto-deploys.
+- **Production smoke** (Playwright against the live URL): HTTP 200 · 8 villager cards · `dayMs
+  120 750` (fresh mid-morning) · `bonds.scores` 144 slots live (v6) · visitor away · console clean.
+  Evidence: `docs/validation/WPROD.png`.
+
 ### 2026-10-06 — Batch-9 review fix round — 0 Critical · 1 Important · 6 Minor: 5 fixed, 2 doc truth-fixes (2 parallel on deepseek)
 - **I1 (Important, tests)** — the mandated "every other timer byte-identical" guard now exists: a
   perk-on vs perk-off control deep-compare (cook, rest, `fedMs` decay, clock and fire all
