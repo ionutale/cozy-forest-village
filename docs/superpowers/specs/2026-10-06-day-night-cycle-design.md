@@ -65,8 +65,9 @@ wraps once via the single modulo and can never skip a boundary (nothing is bound
 | `EVENING_REST_SCALE` | `1.5` | rest committed at dusk/night lasts ×1.5 |
 | `WARMING_RADIUS` | `2.4` | gathering ring radius near the fire (±0.2 hash jitter) |
 
-Public surface additions: `DAY_MS`, `dayT(state)`, `dayPhase(state)`, `dayFactor(state)`. Nothing
-else. The sim itself uses only `dayPhase` (for the rhythm below).
+Public surface additions: `DAY_MS`, `FRESH_START_T`, `dayT(state)`, `dayPhase(state)`,
+`dayFactor(state)`. Nothing else. The sim itself uses only `dayPhase` (for the rhythm below);
+persist uses `DAY_MS` and `FRESH_START_T` for its v5 default.
 
 ### 1.3 Evening rhythm (gentle; no failure)
 
