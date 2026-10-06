@@ -61,11 +61,13 @@ export interface Villager {
   targetNodeId: string | null;  // resolves against nodes OR structures
 }
 export interface SimEvent {
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade';
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade' | 'bond-up' | 'bond-reunion';
   villagerId?: string;
   structureId?: string;
   tradeKind?: 'berries' | 'spice'; // batch 7: which trade fired
   hearty?: boolean;                // batch 7: the eat was a hearty (spiced) meal
+  otherId?: string;                // batch 9: the bond partner
+  bondLevel?: 1 | 2 | 3;           // batch 9: the level a bond-up crossed to
 }
 export type FavorWant =
   | { kind: 'eat'; who: 'self' | 'any'; count: number } // eat events (requester or anyone)
@@ -78,6 +80,7 @@ export interface FavorsState { byVillager: FavorProgress[]; nextOfferMs: number 
 export interface Arrival { structureId: string; inMs: number; castIndex: number } // batch 6: pending walk-ins
 export interface Visitor { phase: 'away' | 'visiting'; inMs: number; visitMs: number; tradesLeft: number } // batch 7
 export interface Clock { dayMs: number } // batch 8: 0 = midnight; wraps at DAY_MS (binding rules in §3.2)
+export interface BondsState { scores: number[]; gapMs: number[] } // batch 9: 12×12 pair tables (row-major, i<j written; gapMs never saved)
 
 export interface GameState {
   tick: number;              // increments once per tick() call
@@ -95,6 +98,7 @@ export interface GameState {
   arrivals: Arrival[];       // batch 6: pending newcomer walk-ins (binding rules in §3.2)
   visitor: Visitor;           // batch 7: the trader's visit schedule (binding rules in §3.2)
   clock: Clock;               // batch 8: time of day (binding rules in §3.2)
+  bonds: BondsState;          // batch 9: proximity friendships (binding rules in §3.2)
 }
 export function createInitialState(seed?: number): GameState;
 export function assignTask(state: GameState, villagerId: string, task: TaskId | null): void;
@@ -127,6 +131,16 @@ export const FRESH_START_T: number;
 export function dayT(state: GameState): number;
 export function dayPhase(state: GameState): 'night' | 'dawn' | 'day' | 'dusk';
 export function dayFactor(state: GameState): number;
+export type BondLevel = 0 | 1 | 2 | 3;
+export const BOND_RADIUS: number;
+export const BOND_RATE_PER_S: number;
+export const BOND_REUNION_GAP_MS: number;
+export const BOND_SCORE_MAX: number;
+export const FRIEND_PERK_LEVEL: number;
+export const FRIEND_PERK_SCALE: number;
+export function bondLevelFor(state: GameState, a: string, b: string): BondLevel;
+export function strongestBondLevel(state: GameState, villagerId: string): BondLevel;
+export function bondPartners(state: GameState, villagerId: string): { id: string; name: string; level: BondLevel }[];
 export function trade(state: GameState, kind: 'berries' | 'spice'): boolean;
 export function tick(state: GameState, dtMs: number): void;
 ```
@@ -195,8 +209,10 @@ Contract rules: other layers import **types**, the read-only data constants
 `NEXT_OFFER_GAP_MS`, `MAX_ACTIVE_FAVORS`, `CHAIN_LENGTH`, `HUT_PLOTS`, `HUT_SETTLE_MS`,
 `VILLAGE_CAP`, `NEWCOMER_CAST`, `FIRST_VISIT_MS`, `VISIT_STAY_MS`, `NEXT_VISIT_GAP_MS`,
 `TRADER_WALK_MS`, `TRADES_PER_VISIT`, `HEARTY_FED_MS`, `TRADE_WOOD_COST`, `TRADE_WOOD_YIELD`,
-`TRADE_BERRY_COST`, `DAY_MS`, `FRESH_START_T`) and the `createFavors`/`favorWantFor`/`trade`
-factories plus the `dayT`/`dayPhase`/`dayFactor` derivations from
+`TRADE_BERRY_COST`, `DAY_MS`, `FRESH_START_T`, `BOND_RADIUS`, `BOND_RATE_PER_S`,
+`BOND_REUNION_GAP_MS`, `BOND_SCORE_MAX`, `FRIEND_PERK_LEVEL`, `FRIEND_PERK_SCALE`) and the
+`createFavors`/`favorWantFor`/`trade` factories plus the
+`dayT`/`dayPhase`/`dayFactor`/`bondLevelFor`/`strongestBondLevel`/`bondPartners` derivations from
 `../sim`, and **nothing else** from it. Internal sim modules (`rng.ts`, `villagers.ts`, `tasks.ts`,
 `world.ts`, `favors.ts`) are implementation detail.
 
@@ -301,6 +317,14 @@ factories plus the `dayT`/`dayPhase`/`dayFactor` derivations from
   **`WARMING_RADIUS` 2.4** ± 0.2 hash jitter — and idle there; any assignment wins instantly and
   the drift never fires by day. Rests **committed** during dusk/night run ×**`EVENING_REST_SCALE`
   1.5**; every other timer is untouched.
+- **Bonds** (batch 9): friendships grow from **pure proximity** — every pair (row-major 12×12
+  score table, `i<j`) within **`BOND_RADIUS` 3.0** accrues **`BOND_RATE_PER_S` 1**/s; levels at
+  **120 / 300 / 720** (warming / close / best); **never decay**. A pair apart >
+  **`BOND_REUNION_GAP_MS` 90000** that comes close again emits one `bond-reunion` (the reset gap
+  is the natural cooldown); every level crossing emits one `bond-up` (`otherId`, `bondLevel`).
+  A **working** villager with a level-≥**`FRIEND_PERK_LEVEL` 2** partner within the same radius
+  works at **`FRIEND_PERK_SCALE` 0.9×** period (stacking exactly like the well-fed modifier; no
+  other timer changes). Newcomers start at zero; `gapMs` is never saved.
 - **World gen**: trees/bushes scatter from **r = 7.5** outward (was 6) to keep the village ring clear.
 - Structure targets resolve by kind (`woodpile`, `pot`) through the same `targetNodeId` field as nodes.
 
@@ -311,11 +335,13 @@ Hat colors: `#c96f4a #7fa653 #b0577a #6f8fb0 #d9a441 #8a6fae #4e8f76 #b0724b` (i
 
 ### Persistence (save schema)
 
-`VERSION = 5` (batch 8; v4 was batch 7). **Migrations chain: v1 → v2 → v3 → v4 → v5.** v4 → v5 adds
-`clock = { dayMs: DAY_MS * FRESH_START_T }` (an ancient save wakes on a fresh morning); v3 → v4 adds
-`resources.spices = 0` and an away `visitor` (next visit `FIRST_VISIT_MS`); v2 → v3 appends the four
-`hut-*` structures (unbuilt) and `arrivals: []`. The village is untouched on load; unknown versions
-or implausible shapes → fresh game (`loadGame` returns null; never throws).
+`VERSION = 6` (batch 9; v5 was batch 8). **Migrations chain: v1 → v2 → v3 → v4 → v5 → v6.** v5 → v6
+adds `bonds = { scores: number[144] zeros, gapMs: zeros }`; the save writes `scores` only (load
+restores `gapMs` zeroed); v4 → v5 adds `clock = { dayMs: DAY_MS * FRESH_START_T }` (an ancient save
+wakes on a fresh morning); v3 → v4 adds `resources.spices = 0` and an away `visitor` (next visit
+`FIRST_VISIT_MS`); v2 → v3 appends the four `hut-*` structures (unbuilt) and `arrivals: []`. The
+village is untouched on load; unknown versions or implausible shapes → fresh game (`loadGame`
+returns null; never throws).
 
 ### Testability hook (all layers)
 
@@ -383,6 +409,8 @@ Fonts: Google Fonts link for Nunito (400, 600, 800) in `index.html`, with the fa
 - Batch 7 explicitly allows, *inside* the three zones: a Spices pill in the HUD (zone 1) and a third
   popover face — the trader's two trade buttons with a "Trades left" line (zone 3). Nothing else.
 - Batch 8 adds **no UI at all** — the sky is the clock; light, glows and ambience only.
+- Batch 9 explicitly allows, *inside* the existing villager face only: a tiny heart mark on a
+  card row (strongest bond ≥ close) and a "Bonds" line in the popover. No new zones.
 
 ## 7. Validation protocol (orchestrator)
 
