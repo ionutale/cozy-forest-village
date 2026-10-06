@@ -81,6 +81,10 @@ the user re-instructs otherwise.
 | T3 | Batch-7: spices pill + trader popover face | ✅ complete | `opencode/space-bunny-free#xhigh` | 1 + 3 micro-rounds (b/c/d) | 254/254 ✅ · 19 tests · live: gate table + face ✅ | 4.5/5 |
 | T4 | Batch-7: trader rig + handcart + picking + cues | ✅ complete | `opencode/space-bunny-free#xhigh` (2nd session) | 1 + 1 critical fix | 254/254 ✅ · live: 1-click pick + walk ✓ | 4/5 |
 | T-fix | Batch-7 review fix round (I1, M1, M2, M3, M5) | ✅ complete | space-bunny ×2 + muse-spark (3 parallel) | 1 | 260/260 ✅ · first render-layer test ✓ · live walk-out re-shot ✅ | 4.5/5 |
+| N1 | Batch-8: clock + derivations + evening rhythm | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ · 10 tests · live: gathering + rest 6000 ✅ | 5/5 |
+| N2 | Batch-8: persist v5 chain | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ (persist 43/43) · live: mid-dusk reload ✅ | 5/5 |
+| N3 | Batch-8: daylight pipeline | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ · 3 tests · day strip exact ✅ | 5/5 |
+| N4 | Batch-8: glows + species swap | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | live: lantern + window + fireflies ✓ · console clean | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -120,12 +124,13 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: **traders → spices shipped (T1–T4)**. Next candidates: bond levels on cards · day/night
-cycle · save-migration harness · the structure popover still shows the villager task grid (predates
-batch 7; a one-rule fix if wanted). Known limitations: clicking an already-selected card does not
-restart camera focus (UI same-selection no-op); the heart-pulse duration lives in both
-`HEART_PULSE_MS` and CSS (comment-linked); the trader face's auto-close matrix has no DOM test
-(live-verified instead); vite chunk warning (cosmetic).
+Remaining: **day/night shipped (N1–N4)**. Next candidates: bond levels on cards · save-migration
+harness · the structure popover still shows the villager task grid (a one-rule fix if wanted) ·
+mirror the hut window to a second face · a soft PointLight on the lantern globe. Known limitations:
+clicking an already-selected card does not restart camera focus (UI same-selection no-op); the
+heart-pulse duration lives in both `HEART_PULSE_MS` and CSS (comment-linked); `src/ui/index.ts`
+still has no DOM test (live-verified instead); the hut window is single-sided; the lantern globe
+doesn't cast light; twilight tones are first-pass curated; vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -165,6 +170,35 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-06 — Batch-8 (day/night cycle) wave complete — 4 parallel tasks on `deepseek-v4.1-flash` (free quota exhausted)
+- **Provider saga**: the wave first went to the free roster (4× simultaneous rate-limit exhaustion),
+  then paid muse-spark (blocked on the workspace's training-consent privacy gate), then LongCat
+  preview free (endpoint unavailable) — finally **`deepseek-v4.1-flash`** (user-authorized) carried
+  all four tasks cleanly. Per the standing rule, the quota exhaustion was surfaced to the user
+  before any spend.
+- **N1 sim** (5/5): `Clock` (`DAY_MS` 480000, single-modulo wrap), pure `dayT`/`dayPhase`/`dayFactor`
+  (smoothstep, integer-ms boundaries), gathering drift (idle + taskless + dusk/night only; 0.5×
+  pace; deterministic warm seats via index × golden angle; assignment wins instantly), evening rest
+  stretch ×1.5 at both commit sites — 10 tests; `hash01` added to `src/sim/rng.ts` (render keeps its
+  private copies).
+- **N2 persist** (5/5): schema **v5**, chain v1→v5, post-migration re-validation, mid-evening
+  round-trip, invalid-clock rejection — persist 43/43, +5 tests.
+- **N3 light** (5/5): pure `daylightFor` (allocation-free scratch; DAY strip = shipped palette
+  exactly; twilight first-pass), wiring for sky/fog/hemisphere/sun, fire night scalar — +3 tests.
+  Sharp catch: the spec's twilight sun `#ffc98f` violated its own guardrail (red 255) → shipped
+  `#f6c98f`, hue intact.
+- **N4 ambience** (4.5/5): lantern globe emissive ramp, single front-face hut window quad,
+  birds/butterflies fading below `dayFactor 0.35`, motes → fireflies (warm, slower, breathing
+  opacity). Curated further in the live pass (window mirroring / lantern PointLight recorded as
+  candidates).
+- **Live pass** — all green: `WN-{dawn,day,dusk,night}.png` (`docs/validation/`); the day frame
+  matches the shipped look; night gathering settled (8 idle at r 2.2–2.6); a mid-drift `chop`
+  interrupt verified; a plain rest committed at night ran exactly 6000; a mid-dusk reload resumed
+  at `dayMs 400 800`; the lantern globe and the hut-window glow both verified in orbit close-ups
+  (+ fireflies); console clean throughout.
+- Gates **278/278 (15 files)** · free-model quota remains exhausted — the review runs next (free
+  reviewer first, deepseek fallback per the user's authorization).
 
 ### 2026-10-05 — Batch-7 review fix round — 0 Critical · 1 Important · 5 Minor: 4 fixed + 1 recorded (3 parallel free models)
 - **I1 (Important, `space-bunny` render)** — the walk-out cart counter-term assumed a π turn; the real arc
