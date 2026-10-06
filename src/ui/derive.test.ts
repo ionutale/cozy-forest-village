@@ -22,6 +22,7 @@ import {
   fireState,
   firstById,
   firstFavorDoneVillagerId,
+  hasCloseFriend,
   hintRecomputeDue,
   potHeartySuffix,
   secondsToBerry,
@@ -944,5 +945,16 @@ describe('bondsLine — the popover Bonds line (batch 9)', () => {
     // 119 is one point short of the warming threshold (120) — still no bond.
     expect(bondsLine(village([[0, 1, 119]]), 'v1')).toBeNull();
     expect(bondsLine(village([[0, 1, 120]]), 'v1')).toBe('Warming to Birch');
+  });
+
+  it('hasCloseFriend pins the card-heart threshold at level 2', () => {
+    // Below warming, warming (level 1) and still-warming (299) all leave the card mark off.
+    expect(hasCloseFriend(village([]), 'v1')).toBe(false);
+    expect(hasCloseFriend(village([[0, 1, 119]]), 'v1')).toBe(false);
+    expect(hasCloseFriend(village([[0, 1, 120]]), 'v1')).toBe(false);
+    expect(hasCloseFriend(village([[0, 1, 299]]), 'v1')).toBe(false);
+    // Close (300, the level-2 threshold) and best (720) turn it on.
+    expect(hasCloseFriend(village([[0, 1, 300]]), 'v1')).toBe(true);
+    expect(hasCloseFriend(village([[0, 1, 720]]), 'v1')).toBe(true);
   });
 });

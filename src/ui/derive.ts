@@ -403,6 +403,16 @@ export function bondsLine(state: GameState, villagerId: string): string | null {
     .join(' · ');
 }
 
+/**
+ * Batch 9 (bonds): whether a villager's card carries the close-friend heart mark — true at
+ * level ≥ 2 ("close" or "best"), the spec's card condition (Part 2). Extracted from the DOM
+ * `syncCards` so the threshold is unit-testable; named apart from the sim's `hasCloseFriendNear`,
+ * which answers the *physical* proximity question for the work perk, not the bond-level one.
+ */
+export function hasCloseFriend(state: GameState, villagerId: string): boolean {
+  return strongestBondLevel(state, villagerId) >= 2;
+}
+
 /** Popover title for a structure card. Both lanterns share a name; their ids stay distinct. */
 export const STRUCTURE_NAMES: Record<StructureKind, string> = {
   woodpile: 'Woodpile',

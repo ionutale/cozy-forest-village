@@ -133,3 +133,30 @@ fully covered and the DOM half is two guarded writes over existing patterns.
 3. **No re-export or new constant added to `src/sim`** — `bondPartners` / `strongestBondLevel` were
    already on K1's public surface, so `derive.ts` and `cards.ts` import them read-only, as the
    contract requires.
+
+---
+
+## Fix round after the batch-9 review
+
+### M3 — the card-heart condition is now a pure, tested helper
+
+The review (K-review-report M3) noted the spec's "card heart condition (≥ 2)" was live-verified only:
+the predicate sat inside the DOM `syncCards`, with no unit test. Extracted it to
+`derive.ts` alongside `bondsLine`:
+
+```ts
+export function hasCloseFriend(state: GameState, villagerId: string): boolean {
+  return strongestBondLevel(state, villagerId) >= 2;
+}
+```
+
+`syncCards` in `cards.ts` now calls it (`const bond = hasCloseFriend(state, villager.id);`) and no
+longer imports `strongestBondLevel` from `../sim` at all — the level knowledge stays in `derive.ts`.
+The name is deliberately distinct from the sim's `hasCloseFriendNear`, which answers the *physical*
+proximity question for the work perk; this one answers the bond-level card question.
+
+One test added, pinning the 1/2 threshold on both sides: level 0 (`[]`, `119`) → false, level 1
+(`120`, `299`) → false, level 2 (`300`, the exact crossing) → true, level 3 (`720`) → true.
+
+**Gate:** `pnpm exec tsc --noEmit` exit 0 · `pnpm build` exit 0 ·
+`pnpm test` exit 0 — 16 files, **310/310** (one new test; baseline for this round was 309).

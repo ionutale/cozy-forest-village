@@ -3,8 +3,7 @@
 // heart's goodbye pulse (G3) is transition-started and timer-ended, never per-frame.
 
 import type { GameState, Villager } from '../sim';
-import { strongestBondLevel } from '../sim';
-import { cardLabel, villagersNeedingCards } from './derive';
+import { cardLabel, hasCloseFriend, villagersNeedingCards } from './derive';
 import { HEART_ICON, must } from './markup';
 
 /** G3: the goodbye pulse's length; `.favor-heart.heart-pulse` in ui.css runs 2 × 300 ms. */
@@ -144,7 +143,7 @@ export function syncCards(cards: Map<string, CardParts>, state: GameState): void
     // per-frame sync*, not in `cardHtml`, so a crossing (score hitting the level-2 threshold)
     // appears on the next frame without any re-render trigger — the same reason the fed tint
     // lives here. Transition-guarded like the rest of the card.
-    const bond = strongestBondLevel(state, villager.id) >= 2;
+    const bond = hasCloseFriend(state, villager.id);
     if (parts.bond !== bond) {
       parts.bond = bond;
       parts.bondHeart.hidden = !bond;
