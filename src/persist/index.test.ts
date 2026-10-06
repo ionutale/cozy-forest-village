@@ -3,8 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STORAGE_KEY, VERSION, clearSave, loadGame, saveGame, startAutosave } from './index';
 import {
-  CHAIN_LENGTH, DAY_MS, FIRST_OFFER_MS, FIRST_VISIT_MS, FRESH_START_T, TRADES_PER_VISIT,
-  createInitialState,
+  BOND_SCORE_MAX, CHAIN_LENGTH, DAY_MS, FIRST_OFFER_MS, FIRST_VISIT_MS, FRESH_START_T,
+  TRADES_PER_VISIT, createInitialState,
 } from '../sim';
 import type { GameState } from '../sim';
 
@@ -48,33 +48,48 @@ function withoutClock(state: GameState): GameState {
   return old;
 }
 
-/** A batch-4 (v2) save: no hut plots, no arrivals block, no clock — the v2 → v3 input. */
+/** A state exactly as a pre-v6 save wrote it: no bonds table (schema v1–v5, batch 9). */
+function withoutBonds(state: GameState): GameState {
+  const old: GameState = { ...state };
+  delete (old as unknown as Record<string, unknown>).bonds;
+  return old;
+}
+
+/** A batch-8 (v5) save: the day/night clock present, no bonds — the v5 → v6 input. */
+function asV5(state: GameState): GameState {
+  return withoutBonds(state);
+}
+
+/** A batch-4 (v2) save: no hut plots, no arrivals block, no clock, no bonds — the v2 → v3 input. */
 function asV2(state: GameState): GameState {
-  return withoutClock(
-    withoutArrivals({
-      ...state,
-      structures: state.structures.filter((s) => s.kind !== 'hut'),
-    }),
+  return withoutBonds(
+    withoutClock(
+      withoutArrivals({
+        ...state,
+        structures: state.structures.filter((s) => s.kind !== 'hut'),
+      }),
+    ),
   );
 }
 
 /**
- * A batch-6 (v3) save: hut plots and arrivals present, no visitor, no spices, no clock — the
- * v3 → v4 migration's input (resources is copied so the delete never mutates the caller's state).
+ * A batch-6 (v3) save: hut plots and arrivals present, no visitor, no spices, no clock, no
+ * bonds — the v3 → v4 migration's input (resources is copied so the delete never mutates the
+ * caller's state).
  */
 function asV3(state: GameState): GameState {
-  const v3 = withoutClock({ ...state, resources: { ...state.resources } });
+  const v3 = withoutBonds(withoutClock({ ...state, resources: { ...state.resources } }));
   delete (v3 as unknown as Record<string, unknown>).visitor;
   delete (v3.resources as unknown as Record<string, unknown>).spices;
   return v3;
 }
 
 /**
- * A batch-7 (v4) save: everything the v4 schema had — spices + visitor — but no day/night clock.
- * The v4 → v5 migration's input.
+ * A batch-7 (v4) save: everything the v4 schema had — spices + visitor — but no day/night clock
+ * and no bonds. The v4 → v5 migration's input.
  */
 function asV4(state: GameState): GameState {
-  return withoutClock(state);
+  return withoutBonds(withoutClock(state));
 }
 
 /**
@@ -146,8 +161,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 round-trip with favors', () => {
-    it('saves as the current schema (v5) and restores an active favor mid-progress plus nextOfferMs', () => {
+  describe('v6 round-trip with favors', () => {
+    it('saves as the current schema (v6) and restores an active favor mid-progress plus nextOfferMs', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.favors.byVillager[0] = { step: 1, active: true, progress: 3 };
@@ -155,7 +170,7 @@ describe('persist', () => {
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
       expect(raw.version).toBe(VERSION);
-      expect(VERSION).toBe(5); // v5 = v4 + the day/night clock (DESIGN §3 persist)
+      expect(VERSION).toBe(6); // v6 = v5 + the bonds scores table (DESIGN §3 persist)
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
       expect(loaded).toEqual(state);
@@ -253,8 +268,8 @@ describe('persist', () => {
     });
   });
 
-  describe('v1 → v5 chained migration (Review Focus 4 + 5)', () => {
-    it('keeps the village intact and adds hut plots, an empty queue, spices, the visitor and a fresh clock', () => {
+  describe('v1 → v6 chained migration (Review Focus 4 + 5)', () => {
+    it('keeps the village intact and adds hut plots, an empty queue, spices, the visitor, a fresh clock and zeroed bonds', () => {
       const storage = makeStorageFake();
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, state: v1Blob() }));
 
@@ -286,6 +301,9 @@ describe('persist', () => {
       });
       // v4 → v5 half: an ancient save wakes on a fresh morning.
       expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
+      // v5 → v6 half (Review Focus 4): an ancient save gains an empty bonds table.
+      expect(loaded!.bonds.scores).toEqual(new Array(144).fill(0));
+      expect(loaded!.bonds.gapMs).toEqual(new Array(144).fill(0));
     });
 
     it('rejects a v1 roster outside [8, 12] after the chain (review I1)', () => {
@@ -297,13 +315,13 @@ describe('persist', () => {
     });
   });
 
-  describe('v3 → v5 chained migration', () => {
-    it('adds spices 0, an away visitor and a fresh clock, village untouched', () => {
+  describe('v3 → v6 chained migration', () => {
+    it('adds spices 0, an away visitor, a fresh clock and zeroed bonds, village untouched', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.resources.wood = 17;
       state.villagers[0]!.task = 'chop';
-      const v3 = asV3(state); // batch-6 save: huts + arrivals, no visitor, no spices, no clock
+      const v3 = asV3(state); // batch-6 save: huts + arrivals, no visitor, no spices, no clock, no bonds
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: v3 }));
 
       const loaded = loadGame(storage);
@@ -316,7 +334,7 @@ describe('persist', () => {
       expect(loaded!.arrivals).toEqual([]);
       expect(loaded!.fire).toEqual(state.fire);
       expect(loaded!.pot).toEqual(state.pot);
-      // … and it gains exactly the v4 fields and the v5 clock.
+      // … and it gains exactly the v4 fields, the v5 clock and the v6 bonds table.
       expect(loaded!.resources).toEqual({ wood: 17, berries: 0, spices: 0 });
       expect(loaded!.visitor).toEqual({
         phase: 'away',
@@ -325,6 +343,8 @@ describe('persist', () => {
         tradesLeft: 0,
       });
       expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
+      expect(loaded!.bonds.scores).toEqual(new Array(144).fill(0));
+      expect(loaded!.bonds.gapMs).toEqual(new Array(144).fill(0));
     });
 
     it('rejects a v3 blob that fails the v3 shape check', () => {
@@ -336,14 +356,14 @@ describe('persist', () => {
     });
   });
 
-  describe('v4 → v5 migration', () => {
-    it('wakes an ancient save on a fresh morning, keeping the village intact', () => {
+  describe('v4 → v6 migration', () => {
+    it('wakes an ancient save on a fresh morning, adds zeroed bonds, keeping the village intact', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
       state.resources.wood = 17;
       state.villagers[0]!.task = 'chop';
       state.visitor = { phase: 'visiting', inMs: 75_000, visitMs: 45_000, tradesLeft: 1 };
-      const v4 = asV4(state); // batch-7 save: spices + visitor, no clock
+      const v4 = asV4(state); // batch-7 save: spices + visitor, no clock, no bonds
       storage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, state: v4 }));
 
       const loaded = loadGame(storage);
@@ -354,8 +374,10 @@ describe('persist', () => {
       expect(loaded!.resources).toEqual(state.resources);
       expect(loaded!.visitor).toEqual(state.visitor);
       expect(loaded!.structures).toEqual(state.structures);
-      // … and it gains exactly the v5 clock at the fresh mid-morning start.
+      // … and it gains exactly the v5 clock at the fresh mid-morning start and a zeroed v6 table.
       expect(loaded!.clock).toEqual({ dayMs: DAY_MS * FRESH_START_T });
+      expect(loaded!.bonds.scores).toEqual(new Array(144).fill(0));
+      expect(loaded!.bonds.gapMs).toEqual(new Array(144).fill(0));
     });
 
     it('rejects a v4 blob that fails the v4 shape check', () => {
@@ -367,7 +389,117 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 round-trip mid-evening (Review Focus 1)', () => {
+  describe('v5 → v6 migration (Review Focus 4)', () => {
+    it('fills a zeroed bonds table and zeroes gapMs on load', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.resources.wood = 17;
+      state.villagers[0]!.task = 'chop';
+      const v5 = asV5(state); // batch-8 save: clock present, no bonds
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 5, state: v5 }));
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      // The v5 village survives untouched …
+      expect(loaded!.tick).toBe(state.tick);
+      expect(loaded!.villagers).toEqual(state.villagers);
+      expect(loaded!.resources).toEqual(state.resources);
+      expect(loaded!.clock).toEqual(state.clock);
+      // … and gains a fully zeroed bonds table (both arrays).
+      expect(loaded!.bonds.scores).toEqual(new Array(144).fill(0));
+      expect(loaded!.bonds.gapMs).toEqual(new Array(144).fill(0));
+    });
+
+    it('rejects a v5 blob that fails the v5 shape check', () => {
+      const storage = makeStorageFake();
+      const v5 = asV5(createInitialState());
+      delete (v5 as unknown as Record<string, unknown>).clock;
+      storage.setItem(STORAGE_KEY, JSON.stringify({ version: 5, state: v5 }));
+      expect(loadGame(storage)).toBeNull();
+    });
+  });
+
+  describe('v6 round-trip mid-bonds (Review Focus 4)', () => {
+    it('restores every score exactly, including the 119/120 and 719/720 level edges', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      // The exact level-boundary edges plus a fractional mid-bond value.
+      state.bonds.scores[0] = 119;
+      state.bonds.scores[1] = 120;
+      state.bonds.scores[2] = 719;
+      state.bonds.scores[3] = 720;
+      state.bonds.scores[4] = 12_345.5;
+      state.bonds.scores[143] = BOND_SCORE_MAX;
+
+      saveGame(state, storage);
+      const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
+      expect(raw.version).toBe(VERSION);
+
+      const loaded = loadGame(storage);
+      expect(loaded).not.toBeNull();
+      expect(loaded!.bonds.scores).toEqual(state.bonds.scores);
+      expect(loaded!.bonds.scores.slice(0, 5)).toEqual([119, 120, 719, 720, 12_345.5]);
+      // gapMs is never restored from disk (no phantom reunions): it comes back all zero.
+      expect(loaded!.bonds.gapMs).toEqual(new Array(144).fill(0));
+    });
+
+    it('writes a saved blob whose bonds contain no gapMs', () => {
+      const storage = makeStorageFake();
+      const state = createInitialState();
+      state.bonds.scores[7] = 360;
+      state.bonds.gapMs[7] = 55_000; // live state — must not reach the blob
+
+      saveGame(state, storage);
+      const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
+      expect(Object.keys(raw.state.bonds)).toEqual(['scores']);
+      expect(raw.state.bonds).toEqual({ scores: state.bonds.scores });
+      expect('gapMs' in raw.state.bonds).toBe(false);
+    });
+  });
+
+  describe('v6 bonds validation', () => {
+    it('returns null for a wrong-length scores array', () => {
+      const storage = makeStorageFake();
+      for (const scores of [new Array(143).fill(0), new Array(145).fill(0), []]) {
+        const state = createInitialState();
+        (state.bonds as unknown as Record<string, unknown>).scores = scores;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toBeNull();
+      }
+    });
+
+    it('returns null for a non-finite, negative or over-cap score', () => {
+      const storage = makeStorageFake();
+      for (const bad of [Number.NaN, -1, BOND_SCORE_MAX + 1, Number.POSITIVE_INFINITY, 'close']) {
+        const state = createInitialState();
+        (state.bonds.scores as unknown as unknown[])[0] = bad;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toBeNull();
+      }
+    });
+
+    it('returns null when the bonds block is missing or not a record', () => {
+      const storage = makeStorageFake();
+      for (const bonds of [undefined, 'friends', 42, {}]) {
+        const state = createInitialState();
+        (state as unknown as Record<string, unknown>).bonds = bonds;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toBeNull();
+      }
+    });
+
+    it('accepts both ends of the score range', () => {
+      const storage = makeStorageFake();
+      for (const score of [0, BOND_SCORE_MAX]) {
+        const state = createInitialState();
+        state.bonds.scores[0] = score;
+        saveGame(state, storage);
+        expect(loadGame(storage)).toEqual(state);
+      }
+    });
+  });
+
+  describe('v6 round-trip mid-evening (Review Focus 1)', () => {
     it('restores dayMs exactly', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -384,7 +516,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 clock validation', () => {
+  describe('v6 clock validation', () => {
     it('returns null when the clock is missing, non-finite or out of range', () => {
       const storage = makeStorageFake();
       const bad: unknown[] = [
@@ -417,7 +549,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 round-trip mid-visit (Review Focus 1)', () => {
+  describe('v6 round-trip mid-visit (Review Focus 1)', () => {
     it('restores a visiting trader exactly: countdown, elapsed visit and trades left', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -426,7 +558,7 @@ describe('persist', () => {
 
       saveGame(state, storage);
       const raw = JSON.parse(storage.getItem(STORAGE_KEY)!);
-      expect(raw.version).toBe(5); // WRITE is always the current schema
+      expect(raw.version).toBe(6); // WRITE is always the current schema
 
       const loaded = loadGame(storage);
       expect(loaded).not.toBeNull();
@@ -436,7 +568,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 visitor validation', () => {
+  describe('v6 visitor validation', () => {
     it('returns null for an invalid visitor shape', () => {
       const storage = makeStorageFake();
       const bad: unknown[] = [
@@ -476,7 +608,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 spices validation', () => {
+  describe('v6 spices validation', () => {
     it('returns null when spices is missing, non-finite or negative', () => {
       const storage = makeStorageFake();
       for (const spices of [undefined, -1, Infinity, NaN, 'pinch']) {
@@ -559,7 +691,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 round-trip with arrivals (Review Focus 1)', () => {
+  describe('v6 round-trip with arrivals (Review Focus 1)', () => {
     it("restores a villager mid-walk-in and a pending arrival's countdown exactly", () => {
       const storage = makeStorageFake();
       const state = createInitialState();
@@ -582,7 +714,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 arrivals validation', () => {
+  describe('v6 arrivals validation', () => {
     it('returns null when arrivals is missing or not an array', () => {
       const storage = makeStorageFake();
       for (const arrivals of [undefined, 'queue', 42, { structureId: 'hut-1' }]) {
@@ -637,7 +769,7 @@ describe('persist', () => {
     });
   });
 
-  describe('v5 roster bound', () => {
+  describe('v6 roster bound', () => {
     it('returns null above the 12-villager cap', () => {
       const storage = makeStorageFake();
       const state = createInitialState();
