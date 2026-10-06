@@ -3,12 +3,14 @@
 // layers may import; internal modules are implementation detail.
 
 export type {
-  Arrival, Clock, FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
-  SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState, Visitor,
+  Arrival, BondLevel, BondsState, Clock, FavorProgress, FavorsState, FavorWant, Fire, GameState,
+  Pot, ResourceNode, SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState,
+  Visitor,
 } from './types';
 
 import type { GameState, StructureKind, TaskId, Vec2, Villager } from './types';
 import { hash01, mulberry32 } from './rng';
+import { FRIEND_PERK_SCALE, hasCloseFriendNear, stepBonds } from './bonds';
 import { createFavors, tickFavors } from './favors';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
@@ -37,6 +39,17 @@ import { DAY_MS, EVENING_REST_SCALE, FRESH_START_T, WARMING_RADIUS, dayPhase } f
  * the sim is their only spender.
  */
 export { DAY_MS, FRESH_START_T, dayFactor, dayPhase, dayT } from './clock';
+
+/**
+ * Bonds (batch 9): the six binding numbers and the three pure derivations on
+ * the public surface (DESIGN.md §3 read-only-imports list, exactly like
+ * STRUCTURE_COST). `stepBonds` and `hasCloseFriendNear` are the sim's internal
+ * spenders — imported above, never re-exported.
+ */
+export {
+  BOND_RADIUS, BOND_RATE_PER_S, BOND_REUNION_GAP_MS, BOND_SCORE_MAX, FRIEND_PERK_LEVEL,
+  FRIEND_PERK_SCALE, bondLevelFor, bondPartners, strongestBondLevel,
+} from './bonds';
 
 
 /** Build costs (DESIGN.md §3.2) — the read-only source of truth other layers import. */
@@ -156,6 +169,11 @@ export function createInitialState(seed = 1): GameState {
     arrivals: [],
     visitor: { phase: 'away', inMs: FIRST_VISIT_MS, visitMs: 0, tradesLeft: 0 },
     clock: { dayMs: DAY_MS * FRESH_START_T }, // batch 8: fresh games wake mid-morning
+    // Batch 9: a fresh village has no bonds and no gaps (gap 0 → no phantom reunions).
+    bonds: {
+      scores: new Array<number>(VILLAGE_CAP * VILLAGE_CAP).fill(0),
+      gapMs: new Array<number>(VILLAGE_CAP * VILLAGE_CAP).fill(0),
+    },
   };
 }
 
@@ -374,6 +392,10 @@ export function tick(state: GameState, dtMs: number): void {
         break;
     }
   }
+  // Bonds (DESIGN.md §3.2, batch 9): friendship growth reads final positions for
+  // the tick, so it runs after the villager loop and before the favor consumer —
+  // its `bond-up` / `bond-reunion` events are in `state.events` by then.
+  stepBonds(state, dtMs);
   // Favor chains (DESIGN.md §3.2) run last, after every system has pushed its
   // events, so this tick's events and warm-fire time are all visible.
   tickFavors(state, dtMs);
@@ -675,8 +697,12 @@ function work(state: GameState, villager: Villager, dtMs: number): void {
     }
     return;
   }
-  // chop / berries: well-fed villagers work 15 % faster (DESIGN.md §3.2).
-  const period = villager.fedMs > 0 ? FED_WORK_PERIOD_MS : WORK_PERIOD_MS;
+  // chop / berries: well-fed villagers work 15 % faster (DESIGN.md §3.2); a
+  // close friend working nearby multiplies the same period by ×0.9 (batch 9,
+  // spec Part 1.4). Exactly like the well-fed modifier: one local `period`,
+  // every other timer byte-identical.
+  let period = villager.fedMs > 0 ? FED_WORK_PERIOD_MS : WORK_PERIOD_MS;
+  if (hasCloseFriendNear(state, villager)) period *= FRIEND_PERK_SCALE;
   villager.progressMs += dtMs;
   while (villager.progressMs >= period) {
     villager.progressMs -= period;

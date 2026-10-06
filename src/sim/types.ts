@@ -5,6 +5,9 @@
 export type TaskId = 'chop' | 'berries' | 'rest' | 'tend' | 'cook';
 export type VillagerState = 'idle' | 'walking' | 'working' | 'resting' | 'arriving';
 
+/** Batch 9: bond strength — none · warming · close · best (DESIGN.md §3.2 "Bonds"). */
+export type BondLevel = 0 | 1 | 2 | 3;
+
 export type StructureKind = 'woodpile' | 'pot' | 'garden' | 'bench' | 'lantern' | 'feeder' | 'hut';
 
 export interface Vec2 {
@@ -55,8 +58,12 @@ export interface SimEvent {
   // Batch 4: 'favor-start' / 'favor-done' carry the requester's villagerId.
   // Batch 7: 'visitor-arrive' / 'visitor-leave' mark trader visits; 'trade'
   // carries tradeKind; 'eat' may carry hearty: true.
-  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade';
+  // Batch 9: 'bond-up' carries villagerId/otherId/bondLevel; 'bond-reunion'
+  // carries villagerId/otherId (DESIGN.md §3.2 "Bonds").
+  type: 'arrived' | 'chop' | 'gather' | 'rest-done' | 'fuel-add' | 'meal-cooked' | 'eat' | 'built' | 'garden' | 'favor-start' | 'favor-done' | 'visitor-arrive' | 'visitor-leave' | 'trade' | 'bond-up' | 'bond-reunion';
   villagerId?: string;
+  otherId?: string;
+  bondLevel?: BondLevel;
   structureId?: string;
   tradeKind?: 'berries' | 'spice';
   hearty?: boolean;
@@ -109,6 +116,16 @@ export interface Clock {
   dayMs: number; // time since midnight; advances with tick(), wraps at DAY_MS
 }
 
+// Batch 9: villager friendships (DESIGN.md §3 "Bonds"; spec
+// docs/superpowers/specs/2026-10-06-bonds-design.md Part 1). Both arrays are
+// row-major 12×12 pair tables (144 slots); `pairIndex` sorts the roster
+// indices, so both directions of a pair read the same cell and only i<j is
+// written. `gapMs` is derived runtime state — never saved (schema v6).
+export interface BondsState {
+  scores: number[]; // proximity score per pair (row-major, only i<j written)
+  gapMs: number[]; // ms since the pair was last within BOND_RADIUS; never saved
+}
+
 export interface GameState {
   tick: number; // increments once per tick() call
   seed: number;
@@ -125,4 +142,5 @@ export interface GameState {
   arrivals: Arrival[]; // batch 6: pending newcomer walk-ins (binding rules in DESIGN.md §3.2)
   visitor: Visitor; // batch 7: the trader-visit schedule (binding rules in DESIGN.md §3.2)
   clock: Clock; // batch 8: time of day (binding rules in DESIGN.md §3.2)
+  bonds: BondsState; // batch 9: proximity friendships (binding rules in DESIGN.md §3.2)
 }

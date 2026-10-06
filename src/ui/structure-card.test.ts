@@ -130,6 +130,9 @@ function state(over: Partial<GameState> = {}): GameState {
     // N1 made `clock` required on GameState (batch 8 day/night cycle); a fresh mid-morning,
     // matching createInitialState. No card derivation reads it, so no expectation changes.
     clock: { dayMs: DAY_MS * FRESH_START_T },
+    // K1 made `bonds` required on GameState (batch 9 friendships); a zeroed pair table. No card
+    // derivation reads it, so no expectation changes.
+    bonds: { scores: new Array<number>(144).fill(0), gapMs: new Array<number>(144).fill(0) },
     ...over,
   };
 }
