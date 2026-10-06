@@ -3,12 +3,12 @@
 // layers may import; internal modules are implementation detail.
 
 export type {
-  Arrival, FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
+  Arrival, Clock, FavorProgress, FavorsState, FavorWant, Fire, GameState, Pot, ResourceNode,
   SimEvent, Structure, StructureKind, TaskId, Vec2, Villager, VillagerState, Visitor,
 } from './types';
 
 import type { GameState, StructureKind, TaskId, Vec2, Villager } from './types';
-import { mulberry32 } from './rng';
+import { hash01, mulberry32 } from './rng';
 import { createFavors, tickFavors } from './favors';
 import { makeVillagers } from './villagers';
 import { generateWorld } from './world';
@@ -24,6 +24,20 @@ import {
   VILLAGE_CAP, VISIT_STAY_MS, WORK_PERIOD_MS, nearestNode, nearestStructure,
   restDuration, restSpot, structureSpot, workSpot,
 } from './tasks';
+
+/**
+ * Batch 8: the day/night clock. `dayPhase` (and the constants the sim spends internally) are
+ * imported here; the five-name public surface is re-exported just below.
+ */
+import { DAY_MS, EVENING_REST_SCALE, FRESH_START_T, WARMING_RADIUS, dayPhase } from './clock';
+
+/**
+ * Day/night surface (batch 8): the five names the rest of the wave consumes (DESIGN.md §3,
+ * §3.2). `EVENING_REST_SCALE` and `WARMING_RADIUS` are binding numbers too but stay internal —
+ * the sim is their only spender.
+ */
+export { DAY_MS, FRESH_START_T, dayFactor, dayPhase, dayT } from './clock';
+
 
 /** Build costs (DESIGN.md §3.2) — the read-only source of truth other layers import. */
 export const STRUCTURE_COST: Readonly<Record<StructureKind, { wood: number; berries: number }>> =
@@ -68,6 +82,33 @@ const CAMPFIRE_ID = 'campfire';
 const WOODPILE_ID = 'woodpile';
 const WOODPILE_ANGLE = Math.PI / 2; // 90°, r = 2.6 (DESIGN.md §3.2)
 const WOODPILE_RADIUS = 2.6;
+
+// ── Batch 8: evening gathering drift (DESIGN.md §3.2 "Day/night cycle") ──────
+// A drifting villager is exactly `state: 'walking' && task === null` (no new state). At
+// dusk/night an idle, taskless villager farther than DRIFT_START_DISTANCE from their warm seat
+// strolls there at DRIFT_PACE × the normal walk speed and idles on arrival; by day the check is
+// inert. `assignTask` never consults the drift, so any assignment wins in the same call.
+const WARM_SEAT_ANGLE = 2.399963; // golden angle, radians (same value as tasks.ts)
+const DRIFT_START_DISTANCE = 0.35; // "not already near their warm spot"
+const DRIFT_ARRIVAL_DISTANCE = 0.05; // a tight settle so seats land on their ring
+const DRIFT_PACE = 0.5; // ≈ half the normal walk speed
+
+/**
+ * Deterministic warm seat for a villager (spec Part 1.3a): angle `(index + 0.5) × golden angle`
+ * (so consecutive seats never coincide), radius `WARMING_RADIUS` jittered ±0.2 by `hash01`.
+ * Centred on the campfire, which is always at the origin.
+ */
+function warmSpot(villagerIndex: number): Vec2 {
+  const a = (villagerIndex + 0.5) * WARM_SEAT_ANGLE;
+  const r = WARMING_RADIUS + (hash01(villagerIndex, 101) - 0.5) * 0.4; // ±0.2
+  return { x: Math.cos(a) * r, z: Math.sin(a) * r };
+}
+
+/** Evening rest stretch (spec Part 1.3b): ×EVENING_REST_SCALE while dusk or night, else 1. */
+function restScale(state: GameState): number {
+  const phase = dayPhase(state);
+  return phase === 'dusk' || phase === 'night' ? EVENING_REST_SCALE : 1;
+}
 
 export function createInitialState(seed = 1): GameState {
   const rnd = mulberry32(seed);
@@ -115,6 +156,7 @@ export function createInitialState(seed = 1): GameState {
     favors: createFavors(villagers.length),
     arrivals: [],
     visitor: { phase: 'away', inMs: FIRST_VISIT_MS, visitMs: 0, tradesLeft: 0 },
+    clock: { dayMs: DAY_MS * FRESH_START_T }, // batch 8: fresh games wake mid-morning
   };
 }
 
@@ -231,6 +273,10 @@ export function tick(state: GameState, dtMs: number): void {
     tickFavors(state, 0);
     return; // dtMs = 0 (or was non-finite): no simulation movement
   }
+  // Day/night clock (DESIGN.md §3.2, batch 8): one modulo, so a giant dt wraps once and can
+  // never skip a boundary (nothing in the sim is boundary-triggered). Runs before the villager
+  // loop so this tick's `dayPhase` sees the advanced time.
+  state.clock.dayMs = (state.clock.dayMs + dtMs) % DAY_MS;
   // Fire decay (DESIGN.md §3.2): 0.22/s, floor 0 — embers, never a failure state.
   state.fire.fuel = Math.max(0, state.fire.fuel - FIRE_DECAY_PER_MS * dtMs);
   // Garden (DESIGN.md §3.2): while built, +1 berry every 30000 ms.
@@ -295,6 +341,9 @@ export function tick(state: GameState, dtMs: number): void {
       state.events.push({ type: 'visitor-leave' });
     }
   }
+  // Batch 8: is it dusk or night this tick? Hoisted once — the clock is already advanced.
+  const phase = dayPhase(state);
+  const evening = phase === 'dusk' || phase === 'night';
   for (let i = 0; i < state.villagers.length; i += 1) {
     const villager = state.villagers[i]!;
     // fedMs decays with dtMs in every state (DESIGN.md §3.2). Runs before the
@@ -313,6 +362,16 @@ export function tick(state: GameState, dtMs: number): void {
         rest(state, villager, dtMs);
         break;
       case 'idle':
+        // Gathering drift (DESIGN.md §3.2, batch 8): after dark, a truly idle, taskless
+        // villager starts the stroll to their warm seat. Starting the walk here (rather than
+        // moving) hands it to `walk()` next tick, which owns the drift target. Never fires
+        // for a taskholder, and by day `evening` is false — the drift is inert.
+        if (evening && villager.task === null) {
+          const seat = warmSpot(i);
+          if (Math.hypot(seat.x - villager.pos.x, seat.z - villager.pos.z) > DRIFT_START_DISTANCE) {
+            villager.state = 'walking';
+          }
+        }
         break;
     }
   }
@@ -450,13 +509,24 @@ function avoidTrunks(
 }
 
 function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs: number): void {
-  const center = resolveTargetPos(state, villager.targetNodeId);
-  if (!center) {
-    // Defensive: a missing target must never wedge the FSM.
-    villager.state = 'idle';
-    villager.task = null;
-    villager.targetNodeId = null;
-    return;
+  // Batch 8 gathering drift: a taskless walker is a drifter heading to their warm seat. It
+  // reuses this whole walk (movement, facing, obstacle/fire avoidance); only the target, the
+  // pace and the settle differ. By day this branch is unreachable — the idle case never starts
+  // a drift — so day behavior is untouched.
+  const drifting = villager.state === 'walking' && villager.task === null;
+  let center: Vec2;
+  if (drifting) {
+    center = warmSpot(villagerIndex);
+  } else {
+    const resolved = resolveTargetPos(state, villager.targetNodeId);
+    if (!resolved) {
+      // Defensive: a missing target must never wedge the FSM.
+      villager.state = 'idle';
+      villager.task = null;
+      villager.targetNodeId = null;
+      return;
+    }
+    center = resolved;
   }
   // `arrival` completes the walk; `target` is this tick's steering point (they
   // differ only on the rest approach arc). `arrivedTol` is the arrival radius:
@@ -464,7 +534,11 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
   let arrival: Vec2;
   let target: Vec2;
   let arrivedTol = ARRIVAL_DISTANCE;
-  if (villager.targetNodeId === CAMPFIRE_ID) {
+  if (drifting) {
+    arrival = center;
+    target = arrival;
+    arrivedTol = DRIFT_ARRIVAL_DISTANCE;
+  } else if (villager.targetNodeId === CAMPFIRE_ID) {
     // Any destination at the campfire — rest AND the tend keeper's deposit and
     // stand-watch legs — settles on the villager's ring spot around the fire:
     // while the angular gap to the spot exceeds 0.25 rad, swing via the
@@ -523,12 +597,18 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
   const dz = target.z - villager.pos.z;
   const dist = Math.hypot(dx, dz);
   villager.facing = Math.atan2(dx, dz);
-  const move = Math.min((MOVE_SPEED * dtMs) / 1000, dist);
+  const speed = drifting ? MOVE_SPEED * DRIFT_PACE : MOVE_SPEED;
+  const move = Math.min((speed * dtMs) / 1000, dist);
   if (move > 0) {
     villager.pos.x += (dx / dist) * move;
     villager.pos.z += (dz / dist) * move;
   }
   if (Math.hypot(arrival.x - villager.pos.x, arrival.z - villager.pos.z) <= arrivedTol) {
+    if (drifting) {
+      // Warmed: idle at the seat until the next assignment. Ambient, so no `arrived` event.
+      villager.state = 'idle';
+      return;
+    }
     if (villager.state === 'arriving') {
       // Walk-in complete: idle at the hut, assignable from here (task stays null).
       villager.state = 'idle';
@@ -537,21 +617,22 @@ function walk(state: GameState, villager: Villager, villagerIndex: number, dtMs:
       // belly isn't already full (DESIGN.md §3.2): consume 1 meal, rest
       // 5500 ms, become well-fed. With spices on hand the meal is hearty:
       // 1 spice goes too, fedMs stretches to 90 000, `eat` carries the flag.
-      // Otherwise rest by fire state, untouched.
+      // Otherwise rest by fire state, untouched. Batch 8: a rest committed at
+      // dusk/night stretches ×EVENING_REST_SCALE (both kinds).
       if (state.fire.fuel >= FIRE_STEADY && state.pot.meals > 0 && villager.fedMs < FED_FULL_BELLY_MS) {
         state.pot.meals -= 1;
         if (state.resources.spices > 0) {
           state.resources.spices -= 1;
           villager.fedMs = HEARTY_FED_MS;
-          villager.restMs = EAT_REST_MS;
+          villager.restMs = EAT_REST_MS * restScale(state);
           state.events.push({ type: 'eat', villagerId: villager.id, hearty: true });
         } else {
           villager.fedMs = FED_MS;
-          villager.restMs = EAT_REST_MS;
+          villager.restMs = EAT_REST_MS * restScale(state);
           state.events.push({ type: 'eat', villagerId: villager.id });
         }
       } else {
-        villager.restMs = restDuration(state.fire);
+        villager.restMs = restDuration(state.fire) * restScale(state);
       }
       villager.state = 'resting';
     } else if (villager.task === 'tend') {

@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { FavorProgress, FavorWant, GameState, SimEvent, Villager } from '../sim';
-import { GARDEN_PERIOD_MS, favorWantFor } from '../sim';
+import { GARDEN_PERIOD_MS, DAY_MS, FRESH_START_T, favorWantFor } from '../sim';
 import {
   DEFAULT_HINT,
   STRUCTURE_NAMES,
@@ -74,6 +74,9 @@ function state(over: Partial<GameState> = {}): GameState {
     arrivals: [],
     // T1 added `visitor` (batch 7 trader's visit schedule); absent or away until a test says so.
     visitor: AWAY,
+    // N1 added `clock` (batch 8 day/night cycle); the fixture defaults to a fresh mid-morning,
+    // matching createInitialState. No derivation reads it yet, so no expectation changes.
+    clock: { dayMs: DAY_MS * FRESH_START_T },
     ...over,
   };
 }

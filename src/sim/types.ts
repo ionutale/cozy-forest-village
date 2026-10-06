@@ -102,6 +102,13 @@ export interface Visitor {
   tradesLeft: number; // remaining stock this visit (0 while away)
 }
 
+// Batch 8: the day/night clock (DESIGN.md §3, §3.2 "Day/night cycle"; spec
+// docs/superpowers/specs/2026-10-06-day-night-cycle-design.md Part 1).
+
+export interface Clock {
+  dayMs: number; // time since midnight; advances with tick(), wraps at DAY_MS
+}
+
 export interface GameState {
   tick: number; // increments once per tick() call
   seed: number;
@@ -117,4 +124,5 @@ export interface GameState {
   favors: FavorsState; // batch 4: per-villager favor chains (binding rules in DESIGN.md §3.2)
   arrivals: Arrival[]; // batch 6: pending newcomer walk-ins (binding rules in DESIGN.md §3.2)
   visitor: Visitor; // batch 7: the trader-visit schedule (binding rules in DESIGN.md §3.2)
+  clock: Clock; // batch 8: time of day (binding rules in DESIGN.md §3.2)
 }

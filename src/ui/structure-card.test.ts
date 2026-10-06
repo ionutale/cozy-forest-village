@@ -14,6 +14,7 @@
 // a future writer touching another ref fails here loudly, which is the point.
 
 import { describe, expect, it } from 'vitest';
+import { DAY_MS, FRESH_START_T } from '../sim';
 import type { GameState, Structure } from '../sim';
 import type { UiRefs } from './markup';
 import type { StructureCardView } from './structure-card';
@@ -126,6 +127,9 @@ function state(over: Partial<GameState> = {}): GameState {
     // T1 made `visitor` required on GameState (batch 7 trader's visit schedule); away, matching
     // the fresh-village default, so the pot status line is unaffected by any T3 suffix.
     visitor: { phase: 'away', inMs: 0, visitMs: 0, tradesLeft: 0 },
+    // N1 made `clock` required on GameState (batch 8 day/night cycle); a fresh mid-morning,
+    // matching createInitialState. No card derivation reads it, so no expectation changes.
+    clock: { dayMs: DAY_MS * FRESH_START_T },
     ...over,
   };
 }
