@@ -86,6 +86,10 @@ the user re-instructs otherwise.
 | N3 | Batch-8: daylight pipeline | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 278/278 ✅ · 3 tests · day strip exact ✅ | 5/5 |
 | N4 | Batch-8: glows + species swap | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | live: lantern + window + fireflies ✓ · console clean | 4.5/5 |
 | N-fix | Batch-8 review fix round (I1, I2, M1, M2, M5) | ✅ complete | deepseek-v4.1-flash ×3 (parallel) | 1 | 282/282 ✅ · night re-shot ✅ | 4.5/5 |
+| K1 | Batch-9: bonds module + work perk | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 (+K1b surface fix) | 309/309 ✅ · 16 tests · live: 22 pairs @1/s, perk 10→11 ✅ | 5/5 |
+| K2 | Batch-9: persist v6 | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ (persist 51/51) · live: sentinel 777 exact, no gapMs ✅ | 5/5 |
+| K3 | Batch-9: card mark + Bonds line | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ · live: "Close with Birch · Warming to Fern" ✅ | 5/5 |
+| K4 | Batch-9: bond hearts | ✅ complete | `opencode-go/deepseek-v4.1-flash` | 1 | 309/309 ✅ · live hearts path ✓ (screenshots) | 4.5/5 |
 
 ## Improvement candidates — round 1 (curated 10, easy → hard)
 
@@ -125,13 +129,14 @@ adds their own, picks ~5–6 for batch 3.
 **Wave B shipped (2026-10-05): #10 rotating village line + the structure highlight + audible garden.**
 **Wave D shipped (2026-10-05): `ui/index.ts` split + guard + tests (WD1), `selectionCue.ts` extraction
 (WD2), obstacle-aware walking (WD3).**
-Remaining: **day/night shipped (N1–N4)**. Next candidates: bond levels on cards · save-migration
-harness · the structure popover still shows the villager task grid (a one-rule fix if wanted) ·
-mirror the hut window to a second face · a soft PointLight on the lantern globe. Known limitations:
-clicking an already-selected card does not restart camera focus (UI same-selection no-op); the
-heart-pulse duration lives in both `HEART_PULSE_MS` and CSS (comment-linked); `src/ui/index.ts`
-still has no DOM test (live-verified instead); the hut window is single-sided; the lantern globe
-doesn't cast light; twilight tones are first-pass curated; vite chunk warning (cosmetic).
+Remaining: **bonds shipped (K1–K4)**. Next candidates: save-migration harness · the structure
+popover still shows the villager task grid (a one-rule fix if wanted) · mirror the hut window to a
+second face · a soft PointLight on the lantern globe. Known limitations: clicking an
+already-selected card does not restart camera focus (UI same-selection no-op); the heart-pulse
+duration lives in both `HEART_PULSE_MS` and CSS (comment-linked); `src/ui/index.ts` still has no
+DOM test (live-verified instead); the hut window is single-sided; the lantern globe doesn't cast
+light; twilight tones are first-pass curated; coincident bond-up hearts recycle the 4-slot pool
+oldest-first (existing behavior); vite chunk warning (cosmetic).
 
 1. [easy] **Fuel-pill pulse on a log deposit** — re-fire the yield pulse on `fuel-add`; the +25 becomes
    legible across the clearing. (B9 #5)
@@ -171,6 +176,27 @@ a 3D highlight for the selected structure.
   T2 — T2 replaces internals, signatures unchanged. Cost if wrong: none observed.
 - Notes: vite chunk-size warning (three.js bundle) accepted; dev-server port 5188 (5173 is used by the
   user's other projects).
+
+### 2026-10-06 — Batch-9 (bonds) wave complete — 4 parallel + 1 micro-round on `deepseek-v4.1-flash` (user-chosen)
+- **K1 sim** (5/5): the 12×12 pair table; growth exactly `1/s` within `BOND_RADIUS` 3.0; thresholds
+  120/300/720 (warming/close/best), never-decay; once-per-crossing `bond-up`; `bond-reunion` with
+  the gap-reset cooldown; the ×0.9 work perk stacking with well-fed. Micro-round **K1b**: the public
+  `bondLevelFor` pinned to villager ids (matching its siblings and DESIGN). 16 tests.
+- **K2 persist** (5/5): schema **v6**; the save writes `scores` only — `gapMs` is stripped (live
+  check: the stored blob contains no `gapMs`; a staged 150 000 ms gap does not survive); chain
+  v1→v6 with post-migration re-validation; persist 51/51.
+- **K3 UI** (5/5): card heart mark (≥ close) inside the per-frame sync; the **Bonds line** in the
+  villager face only (`data-face`), live-read as *"Close with Birch · Warming to Fern"*; 3 tests.
+- **K4 render** (4.5/5): hearts on `bond-up` (a puff at both villagers) and `bond-reunion`
+  (subtler); reuses the pool and the favor-delight path.
+- **Live pass**: 22 pairs formed in one 26 s evening gathering at ~1/s exactly; forced crossings
+  produced level 1 → level 2 with the card heart appearing; **the perk measured 10 → 11 yields over
+  identical 12 s windows** (far vs near; deterministic synchronous ticks — the first attempt failed
+  only because the harness ran at night and the evening drift walked the friend away, a harness
+  artifact, not code); reload kept a sentinel score exact (777) with no `gapMs` in the save and no
+  stale gaps; console clean throughout. Evidence: `docs/validation/WK-{cards-bonds,bonds-line,reunion}.png`.
+- DESIGN §3/§3.2/§3-persist/§6 amended (`44906b3`).
+- Review: independent pass dispatched over the wave.
 
 ### 2026-10-06 — Batch-8 review fix round — 0 Critical · 2 Important · 5 Minor: 4 fixed, 2 accepted/recorded (3 parallel on deepseek)
 - **I1/I2 (Important, tests)** — the non-rest timers and two-run determinism are now pinned (work/cook
