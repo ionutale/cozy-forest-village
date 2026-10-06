@@ -5,8 +5,9 @@
 // savoring head bob + pooled heart sprites on an `eat` event, and an embers shiver when the fire is
 // out. F4 bursts the same pooled hearts on `favor-done` (meal rules, no new geometry); one burst
 // per villager per tick — a completion on the requester's own meal tick de-dupes the `eat`
-// burst (same visual moment, M8). Motion is procedural; all smoothing state lives on the rig, so
-// the sim stays pure (DESIGN §3).
+// burst (same visual moment, M8). B9 reuses the same pool for the bond transitions: `bond-up`
+// bursts the full gentle puff at both villagers, `bond-reunion` a subtler single heart each.
+// Motion is procedural; all smoothing state lives on the rig, so the sim stays pure (DESIGN §3).
 //
 // Split (A6): `rig.ts` builds the shared kit and the per-villager rigs, `motion.ts` computes poses
 // and applies them eased, `hearts.ts` owns the pooled heart sprites, `ring.ts` the shared selection
@@ -14,9 +15,9 @@
 
 import * as THREE from 'three';
 import type { GameState, SimEvent } from '../../sim';
-import { createRig, createRigKit, type Rig } from './rig';
+import { createRig, createRigKit, hash01, type Rig } from './rig';
 import { animate } from './motion';
-import { advanceHearts, createHeartPool, spawnHearts } from './hearts';
+import { advanceHearts, createHeartPool, heartSlot, spawnHearts, type Heart } from './hearts';
 import { createSelectionRing, updateSelectionRing } from './ring';
 
 /** M8: true when this tick's event batch holds a `favor-done` for `villagerId`. */
@@ -25,6 +26,49 @@ function hasFavorDoneFor(events: readonly SimEvent[], villagerId: string): boole
     if (event.type === 'favor-done' && event.villagerId === villagerId) return true;
   }
   return false;
+}
+
+const TAU = Math.PI * 2;
+
+/** B9: a full gentle puff (2–3 pooled hearts) at one villager; a no-op when its rig is absent. */
+function burstHeartsAt(
+  hearts: Heart[],
+  rigs: ReadonlyMap<string, Rig>,
+  villagerId: string | undefined,
+  serial: number,
+): number {
+  if (villagerId === undefined) return serial;
+  const rig = rigs.get(villagerId);
+  if (!rig) return serial;
+  return spawnHearts(hearts, rig, serial);
+}
+
+/**
+ * B9: exactly one pooled heart at a villager — the subtler `bond-reunion` puff. Reuses `heartSlot`
+ * and the deterministic phase hash; a lone heart needs no fan, so its spread stays centred. This is
+ * the single-heart counterpart of `spawnHearts` (which owns the 2–3-heart burst).
+ */
+function spawnSingleHeart(
+  hearts: Heart[],
+  rigs: ReadonlyMap<string, Rig>,
+  villagerId: string | undefined,
+  serial: number,
+): number {
+  if (villagerId === undefined) return serial;
+  const rig = rigs.get(villagerId);
+  if (!rig) return serial;
+  const heart = heartSlot(hearts);
+  if (!heart) return serial; // a full pool recycles rather than allocating; null only if empty
+  serial += 1;
+  heart.active = true;
+  heart.ageMs = 0;
+  heart.ownerId = rig.id;
+  heart.x = rig.root.position.x;
+  heart.z = rig.root.position.z;
+  heart.spread = 0;
+  heart.phase = hash01(serial, 95) * TAU;
+  heart.sprite.visible = true;
+  return serial;
 }
 
 export interface VillagersLayer {
@@ -92,6 +136,23 @@ export function createVillagers(): VillagersLayer {
       if (state.tick !== lastEventTick) {
         lastEventTick = state.tick;
         for (const event of state.events) {
+          // B9: bond transitions reuse the same pooled hearts, still one scan per sim tick.
+          // `bond-up` gets the full gentle puff at both villagers; `bond-reunion` is the subtler
+          // single heart each. Events are emitted once per real transition, never per tick.
+          if (event.type === 'bond-up') {
+            heartSerial = burstHeartsAt(hearts, rigs, event.villagerId, heartSerial);
+            if (event.otherId !== event.villagerId) {
+              heartSerial = burstHeartsAt(hearts, rigs, event.otherId, heartSerial);
+            }
+            continue;
+          }
+          if (event.type === 'bond-reunion') {
+            heartSerial = spawnSingleHeart(hearts, rigs, event.villagerId, heartSerial);
+            if (event.otherId !== event.villagerId) {
+              heartSerial = spawnSingleHeart(hearts, rigs, event.otherId, heartSerial);
+            }
+            continue;
+          }
           // F4: a completed favor bursts the same pooled hearts as a meal, with the same rules —
           // only the savoring bob stays exclusive to eating.
           const burstsHearts = event.type === 'eat' || event.type === 'favor-done';
